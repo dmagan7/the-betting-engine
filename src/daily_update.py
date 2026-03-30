@@ -20,10 +20,24 @@ def main():
     atp_dir = os.path.join(base_dir, "data", "raw", "tennis_atp")
     wta_dir = os.path.join(base_dir, "data", "raw", "tennis_wta")
     
+    # Asegurarnos de que las carpetas padre existan
+    os.makedirs(os.path.dirname(atp_dir), exist_ok=True)
+    
     print("=== RUTINA DE AUTOMATIZACIÓN DIARIA (MLOps) ===")
-    print("1. Descargando nuevos resultados/partidos GitHub...")
-    run_command(["git", "pull"], cwd=atp_dir)
-    run_command(["git", "pull"], cwd=wta_dir)
+    print("1. Descargando / Actualizando resultados de GitHub...")
+    
+    # Si es la primera vez que se lanza en Docker, usar clone en lugar de pull
+    if os.path.exists(atp_dir) and os.path.exists(os.path.join(atp_dir, ".git")):
+        run_command(["git", "pull"], cwd=atp_dir)
+    else:
+        print("Primera instalación detectada. Clonando ATP desde cero...")
+        run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir])
+        
+    if os.path.exists(wta_dir) and os.path.exists(os.path.join(wta_dir, ".git")):
+        run_command(["git", "pull"], cwd=wta_dir)
+    else:
+        print("Primera instalación detectada. Clonando WTA desde cero...")
+        run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir])
     
     python_exe = sys.executable
     

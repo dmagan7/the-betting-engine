@@ -2,16 +2,16 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-from scipy.stats import poisson
-import certifi
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from dotenv import load_dotenv
 import datetime
 import sys
 import subprocess
+import certifi
+import requests
+from scipy.stats import poisson
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
+from dotenv import load_dotenv
 
-# Variables desde `.env` y certificados para peticiones (como Windows MSYS requiere a veces)
 load_dotenv()
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
@@ -19,126 +19,123 @@ MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
 try:
     atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
     atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-except Exception as e:
-    print(f"Error cargando los nuevos modelos multi-mercado: {e}")
+except:
     atp_score_model = None
     atp_games_model = None
 
 def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
-    """
-    Calcula el Stake recomendado (en %) usando el Criterio de Kelly fraccional para proteger banca.
-    """
     if prob == 0 or odds <= 1: return 0.0
     q = 1 - prob
-    # Kelly Formula = (bp - q) / b, where b = odds - 1
     b = odds - 1
     kelly_pct = ((b * prob) - q) / b
-    
-    if kelly_pct <= 0: return 0.0 # No hay ventaja (EV negativo), no apostamos.
-    
-    stake = kelly_pct * fraction * 100
-    return min(stake, max_stake)
+    if kelly_pct <= 0: return 0.0
+    return min(kelly_pct * fraction * 100, max_stake)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
-    print("[CRON JOB] Iniciando rutina 24H de MLOps...")
+    print("[CRON JOB] Iniciando rutina 24H de automatización MLOps...")
     python_exe = sys.executable
     script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
-    # Ejecutamos el reentrenamiento
     subprocess.run([python_exe, script_path])
-    
-    # Recargar los modelos calientes en memoria para hoy
     global atp_score_model, atp_games_model
     try:
         atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
         atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-        print("[CRON JOB] Modelos re-cargados con éxito para las apuestas frescas del día.")
+        print("[CRON JOB] Modelos re-cargados en caliente con éxito.")
     except Exception as e:
-        print(f"[CRON JOB] Error recargando modelos nuevos: {e}")
+        print(f"[CRON JOB] Error recargando modelos: {e}")
     print("--------------------------------------------------")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    welcome_text = (
-        "👑 ¡Bienvenido a The Betting Engine (Edition: Bet365)!\n\n"
-        "La Inteligencia Artificial acaba de ser configurada para Multi-Mercado.\n"
-        "Usa el comando /valuebets para escanear las cuotas actuales contra mis pronósticos matemáticos."
-    )
-    await update.message.reply_text(welcome_text)
-
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔎 Analizando cuotas de Bet365 y cruzándolas con Algoritmos de IA...")
+    await update.message.reply_text("🔎 Conectando en vivo con The Odds API (Bet365) para analizar partidos reales...")
+    ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "547f9d4f748137ff6adbf7fe48baa1a7")
+    url = "https://api.the-odds-api.com/v4/sports/tennis_atp/odds/"
+    params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
     
-    if not atp_score_model or not atp_games_model:
-        await update.message.reply_text("⚠ Modelos de IA no cargados. Revisa los logs de arranque.")
+    try:
+        resp = requests.get(url, params=params)
+        matches = resp.json()
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error conectando servidor API: {e}")
         return
         
-    # MOCK API RESPONSE - Simulando obtener cuotas REST JSON de The Odds API para Bet365
-    mock_matches = [
-        {"p1": "Carlos Alcaraz", "p1_rank": 3, "p1_age": 21, "p1_ht": 183, 
-         "p2": "Jannik Sinner", "p2_rank": 1, "p2_age": 22, "p2_ht": 188, "surface": 0,
-         "odds": {"p1_win": 2.10, "p2_win": 1.72, "over_22_5": 1.95, "under_22_5": 1.83}}, 
-         
-        {"p1": "Novak Djokovic", "p1_rank": 2, "p1_age": 37, "p1_ht": 188, 
-         "p2": "Daniil Medvedev", "p2_rank": 4, "p2_age": 28, "p2_ht": 198, "surface": 1,
-         "odds": {"p1_win": 1.40, "p2_win": 3.00, "over_21_5": 1.90, "under_21_5": 1.90}}
-    ]
+    if not isinstance(matches, list) or len(matches) == 0:
+        await update.message.reply_text("No hay partidos con cuotas de Bet365 disponibles en la web.")
+        return
+
+    responses = ["💰 *Escaneo de Cuotas Bet365 (En Directo)* 💰\n"]
+    found_any = False
     
-    responses = ["💰 *Oportunidades de Inversión Identificadas* 💰\n"]
-    
-    for match in mock_matches:
-        # Array Exacto de Feature Engineering V2
+    for m in matches[:10]:
+        if not m.get('bookmakers'): continue
+        bm = m['bookmakers'][0] # Ya está filtrado unicamente para sacar Bet365
+        
+        p1_name = m['home_team']
+        p2_name = m['away_team']
+        p1_odds, p2_odds, over_odds, over_line = 0, 0, 0, 21.5
+        
+        for market in bm['markets']:
+            if market['key'] == 'h2h':
+                for out in market['outcomes']:
+                    if out['name'] == p1_name: p1_odds = out['price']
+                    else: p2_odds = out['price']
+            elif market['key'] == 'totals':
+                for out in market['outcomes']:
+                    if out['name'] == 'Over':
+                        over_line = out.get('point', 21.5)
+                        over_odds = out['price']
+                        
+        if p1_odds == 0 or p2_odds == 0: continue
+        
         df_pred = pd.DataFrame([{
-            'surface_target': match['surface'],
-            'p1_rank': match['p1_rank'],
-            'p1_age': match['p1_age'],
-            'p1_ht': match['p1_ht'],
-            'p2_rank': match['p2_rank'],
-            'p2_age': match['p2_age'],
-            'p2_ht': match['p2_ht']
+            'surface_target': 0, 'p1_rank': 100, 'p1_age': 25, 'p1_ht': 185,
+            'p2_rank': 100, 'p2_age': 25, 'p2_ht': 185
         }])
         
-        # 1. MERCADOS DE RESULTADO EXACTO Y GANADOR
         score_probs = atp_score_model.predict_proba(df_pred)[0]
-        # P(P1 Gana) = P(2-0) + P(2-1)
         prob_p1_win = score_probs[0] + score_probs[1]
         
-        # 2. MERCADOS OVER/UNDER (Poisson Regressor)
-        expected_games = atp_games_model.predict(df_pred)[0]
-        # Usamos SciPy CDF para saber la probabilidad probabilística de que no se superen X juegos.
-        prob_over_22_5 = 1 - poisson.cdf(22, mu=expected_games)
-        prob_over_21_5 = 1 - poisson.cdf(21, mu=expected_games)
-        
-        texto = f"\n🔹 *{match['p1']} vs {match['p2']}*\n"
+        texto = f"\n🔹 *{p1_name} vs {p2_name}*\n"
         bets_found = False
         
-        # A) Analizamos Cuotas para Ganador del Partido
-        edge_p1 = (prob_p1_win * match['odds']['p1_win']) - 1
-        if edge_p1 > 0.03: # Existe ventaja Matemática contra Bet365 > 3%
-            stake = calculate_kelly(prob_p1_win, match['odds']['p1_win'])
-            texto += f"✅ *Victoria {match['p1']}*\n"
-            texto += f"   └ Bet365: {match['odds']['p1_win']} | IA Prob Real: {prob_p1_win*100:.1f}%\n"
-            texto += f"   └ Edge: +{edge_p1*100:.1f}% | 🎯 Stake: *{stake:.1f} U.*\n"
+        edge_p1 = (prob_p1_win * p1_odds) - 1
+        if edge_p1 > 0.03:
+            stake = calculate_kelly(prob_p1_win, p1_odds)
+            texto += f"✅ Victoria *{p1_name}* | Cuota: {p1_odds} | Prob IA: {prob_p1_win*100:.1f}%\n"
+            texto += f"   └ Edge: +{edge_p1*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
             bets_found = True
             
-        # B) Analizamos Cuotas para Total Juegos
-        linea = 22.5 if "Sinner" in match['p2'] else 21.5
-        prob_over = prob_over_22_5 if linea == 22.5 else prob_over_21_5
-        cuota_over = match['odds'][f"over_{str(linea).replace('.','_')}"]
-        
-        edge_over = (prob_over * cuota_over) - 1
-        if edge_over > 0.03:
-            stake = calculate_kelly(prob_over, cuota_over)
-            texto += f"✅ *O/U {linea} Juegos (OVER)*\n"
-            texto += f"   └ Bet365: {cuota_over} | IA Prob Real: {prob_over*100:.1f}%\n"
-            texto += f"   └ Edge: +{edge_over*100:.1f}% | 🎯 Stake: *{stake:.1f} U.*\n"
+        prob_p2_win = score_probs[2] + score_probs[3]
+        edge_p2 = (prob_p2_win * p2_odds) - 1
+        if edge_p2 > 0.03:
+            stake = calculate_kelly(prob_p2_win, p2_odds)
+            texto += f"✅ Victoria *{p2_name}* | Cuota: {p2_odds} | Prob IA: {prob_p2_win*100:.1f}%\n"
+            texto += f"   └ Edge: +{edge_p2*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
             bets_found = True
             
-        if not bets_found:
-            texto += "❌ Sin Value Bets localizadas en Bet365 a cuota actual.\n"
+        if over_odds > 0:
+            expected_games = atp_games_model.predict(df_pred)[0]
+            prob_over = 1 - poisson.cdf(int(over_line), mu=expected_games)
+            edge_over = (prob_over * over_odds) - 1
+            if edge_over > 0.03:
+                stake = calculate_kelly(prob_over, over_odds)
+                texto += f"✅ OVER {over_line} Juegos | Cuota: {over_odds} | Prob IA: {prob_over*100:.1f}%\n"
+                texto += f"   └ Edge: +{edge_over*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
+                bets_found = True
+                
+        if bets_found:
+            responses.append(texto)
+            found_any = True
             
-        responses.append(texto)
+    if not found_any:
+        responses.append("\n❌ Explorando matches en vivo en Bet365 pero ninguno te da márgen frente a la IA por ahora.")
         
-    await update.message.reply_text("\n".join(responses), parse_mode='Markdown')
+    msg = "\n".join(responses)
+    for i in range(0, len(msg), 4000):
+        await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -147,11 +144,13 @@ def main():
         return
         
     application = Application.builder().token(token).build()
-
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("valuebets", valuebets))
 
-    print("Motor de Value Bets Iniciado. Escaneando en Telegram...")
+    t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
+    application.job_queue.run_daily(daily_update_job, t)
+
+    print("Motor The Odds API Iniciado. Escaneando en Telegram...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
