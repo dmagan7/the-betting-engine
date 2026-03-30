@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+models/*.pkl
+data/raw/tennis_atp/
+data/raw/tennis_wta/
+data/processed/*.csv
+.env
