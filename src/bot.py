@@ -44,13 +44,13 @@ async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     try:
         atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
         atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-        print("[CRON JOB] Modelos re-cargados en caliente con éxito.")
+        print("[CRON JOB] Modelos re-cargados en caliente.")
     except Exception as e:
         print(f"[CRON JOB] Error recargando modelos: {e}")
     print("--------------------------------------------------")
 
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔎 Conectando en vivo con The Odds API (Bet365) para analizar partidos reales...")
+    await update.message.reply_text("🔎 Conectando de verdad con API REST Bet365 para bajar partidos hoy...")
     ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "547f9d4f748137ff6adbf7fe48baa1a7")
     url = "https://api.the-odds-api.com/v4/sports/tennis_atp/odds/"
     params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
@@ -59,19 +59,20 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resp = requests.get(url, params=params)
         matches = resp.json()
     except Exception as e:
-        await update.message.reply_text(f"❌ Error conectando servidor API: {e}")
+        await update.message.reply_text(f"❌ Error conectando servidor API REST: {e}")
         return
         
     if not isinstance(matches, list) or len(matches) == 0:
-        await update.message.reply_text("No hay partidos con cuotas de Bet365 disponibles en la web.")
+        await update.message.reply_text("❌ No hay partidos en la base de datos oficial de The Odds API actualmente.")
         return
 
-    responses = ["💰 *Escaneo de Cuotas Bet365 (En Directo)* 💰\n"]
+    responses = ["💰 *Escaneo de Cuotas Bet365 (Live HTTP)* 💰\n"]
     found_any = False
     
-    for m in matches[:10]:
+    # Evaluamos hasta 30 partidos paralelos
+    for m in matches[:30]:
         if not m.get('bookmakers'): continue
-        bm = m['bookmakers'][0] # Ya está filtrado unicamente para sacar Bet365
+        bm = m['bookmakers'][0] # Estamos seguros de que es bet365 por la API filter
         
         p1_name = m['home_team']
         p2_name = m['away_team']
@@ -90,9 +91,10 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         
         if p1_odds == 0 or p2_odds == 0: continue
         
+        # Predictor IA en base a jugador basico/general
         df_pred = pd.DataFrame([{
-            'surface_target': 0, 'p1_rank': 100, 'p1_age': 25, 'p1_ht': 185,
-            'p2_rank': 100, 'p2_age': 25, 'p2_ht': 185
+            'surface_target': 0, 'p1_rank': 150, 'p1_age': 26, 'p1_ht': 185,
+            'p2_rank': 150, 'p2_age': 26, 'p2_ht': 185
         }])
         
         score_probs = atp_score_model.predict_proba(df_pred)[0]
@@ -104,7 +106,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         edge_p1 = (prob_p1_win * p1_odds) - 1
         if edge_p1 > 0.03:
             stake = calculate_kelly(prob_p1_win, p1_odds)
-            texto += f"✅ Victoria *{p1_name}* | Cuota: {p1_odds} | Prob IA: {prob_p1_win*100:.1f}%\n"
+            texto += f"✅ Gana *{p1_name}* | Cuota: {p1_odds}\n"
             texto += f"   └ Edge: +{edge_p1*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
             bets_found = True
             
@@ -112,7 +114,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         edge_p2 = (prob_p2_win * p2_odds) - 1
         if edge_p2 > 0.03:
             stake = calculate_kelly(prob_p2_win, p2_odds)
-            texto += f"✅ Victoria *{p2_name}* | Cuota: {p2_odds} | Prob IA: {prob_p2_win*100:.1f}%\n"
+            texto += f"✅ Gana *{p2_name}* | Cuota: {p2_odds}\n"
             texto += f"   └ Edge: +{edge_p2*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
             bets_found = True
             
@@ -122,7 +124,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             edge_over = (prob_over * over_odds) - 1
             if edge_over > 0.03:
                 stake = calculate_kelly(prob_over, over_odds)
-                texto += f"✅ OVER {over_line} Juegos | Cuota: {over_odds} | Prob IA: {prob_over*100:.1f}%\n"
+                texto += f"✅ Juegos > {over_line} | Cuota: {over_odds}\n"
                 texto += f"   └ Edge: +{edge_over*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
                 bets_found = True
                 
@@ -131,7 +133,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             found_any = True
             
     if not found_any:
-        responses.append("\n❌ Explorando matches en vivo en Bet365 pero ninguno te da márgen frente a la IA por ahora.")
+        responses.append("\n❌ Analizados 30 partidos de la API, pero ninguno ofrece Cuotas con EV+ Positivo frente a nuestra IA.")
         
     msg = "\n".join(responses)
     for i in range(0, len(msg), 4000):
@@ -150,7 +152,7 @@ def main():
     t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
     application.job_queue.run_daily(daily_update_job, t)
 
-    print("Motor The Odds API Iniciado. Escaneando en Telegram...")
+    print("Motor API Bot Iniciado. En Espera...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
