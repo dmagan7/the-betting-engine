@@ -7,6 +7,9 @@ import certifi
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
+import datetime
+import sys
+import subprocess
 
 # Variables desde `.env` y certificados para peticiones (como Windows MSYS requiere a veces)
 load_dotenv()
