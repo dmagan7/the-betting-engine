@@ -41,7 +41,7 @@ def process_circuit(df, name, models_dir):
     print(f"-> Modelos de {name} guardados con éxito.")
 
 def main():
-    base_dir = r"C:\Users\PcVIP\.gemini\antigravity\scratch\tennis_prediction_ai"
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     processed_dir = os.path.join(base_dir, "data", "processed")
     models_dir = os.path.join(base_dir, "models")
     os.makedirs(models_dir, exist_ok=True)

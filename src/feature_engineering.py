@@ -90,7 +90,7 @@ def create_features(df):
     return df_ml
 
 def main():
-    base_dir = r"C:\Users\PcVIP\.gemini\antigravity\scratch\tennis_prediction_ai"
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     processed_dir = os.path.join(base_dir, "data", "processed")
     atp_in = os.path.join(processed_dir, "atp_matches_combined.csv")
     wta_in = os.path.join(processed_dir, "wta_matches_combined.csv")

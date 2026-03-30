@@ -36,7 +36,7 @@ def clean_data(df):
     return df
 
 def main():
-    base_dir = r"C:\Users\PcVIP\.gemini\antigravity\scratch\tennis_prediction_ai"
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     raw_dir = os.path.join(base_dir, "data", "raw")
     processed_dir = os.path.join(base_dir, "data", "processed")
     os.makedirs(processed_dir, exist_ok=True)
