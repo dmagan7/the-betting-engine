@@ -52,17 +52,37 @@ async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🔎 Conectando de verdad con API REST Bet365 para bajar partidos hoy...")
     ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "547f9d4f748137ff6adbf7fe48baa1a7")
-    url = "https://api.the-odds-api.com/v4/sports/tennis_atp/odds/"
-    params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
-    
+    # 1. Obtener los deportes activos
+    sports_url = "https://api.the-odds-api.com/v4/sports"
     try:
-        resp = requests.get(url, params=params)
-        matches = resp.json()
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error conectando servidor API REST: {e}")
-        return
+        sports_resp = requests.get(sports_url, params={"apiKey": ODDS_API_KEY})
+        sports_data = sports_resp.json()
         
-    if not isinstance(matches, list) or len(matches) == 0:
+        # Obtenemos todos los keys de tenis que estén activos (ej. 'tennis_atp_wimbledon', 'tennis_wta_charleston_open')
+        tennis_sports = [s['key'] for s in sports_data if 'tennis' in s['key'].lower()]
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error conectando servidor API REST para obtener deportes: {e}")
+        return
+
+    if not tennis_sports:
+        await update.message.reply_text("❌ No hay torneos de tenis activos en The Odds API actualmente.")
+        return
+
+    matches = []
+    # 2. Descargar cuotas para cada torneo de tenis activo
+    for sport_key in tennis_sports:
+        odds_url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
+        params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
+        try:
+            resp = requests.get(odds_url, params=params)
+            sport_matches = resp.json()
+            if isinstance(sport_matches, list):
+                matches.extend(sport_matches)
+        except Exception as e:
+            print(f"Error descargando cuotas para {sport_key}: {e}")
+            continue
+
+    if not matches:
         await update.message.reply_text("❌ No hay partidos en la base de datos oficial de The Odds API actualmente.")
         return
 
