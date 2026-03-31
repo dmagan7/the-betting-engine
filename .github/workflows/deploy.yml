@@ -4,6 +4,9 @@ on:
   push:
     branches: [ "main" ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -29,7 +32,7 @@ jobs:
         images: ghcr.io/${{ github.repository }}
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         push: true
@@ -37,14 +40,14 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
 
     - name: Deploy to Azure Linux VM via SSH
-      uses: appleboy/ssh-action@v1.0.3
+      uses: appleboy/ssh-action@v1.2.0
       with:
         host: ${{ secrets.VM_HOST }}
         username: ${{ secrets.VM_USERNAME }}
         key: ${{ secrets.VM_SSH_KEY }}
         script: |
           # 1. Login to GHCR on the VM
-          echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
           # 2. Convert repository name to lowercase for Docker image name
           IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}:latest" | tr '[:upper:]' '[:lower:]')
           # 3. Pull latest image
@@ -52,7 +55,7 @@ jobs:
           # 4. Stop and remove the old container if it exists
           docker stop betting-engine-bot || true
           docker rm betting-engine-bot || true
-          # 5. Run the new container (Make sure you have a .env file in the home directory of the VM)
+          # 5. Run the new container
           docker run -d \
             --name betting-engine-bot \
             --restart unless-stopped \
