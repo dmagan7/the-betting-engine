@@ -39,27 +39,9 @@ jobs:
         tags: ghcr.io/${{ github.repository }}:latest
         labels: ${{ steps.meta.outputs.labels }}
 
-    - name: Deploy to Azure Linux VM via SSH
-      uses: appleboy/ssh-action@v1.2.0
+    - name: Deploy to Azure Web App
+      uses: azure/webapps-deploy@v3
       with:
-        host: ${{ secrets.VM_HOST }}
-        username: ${{ secrets.VM_USERNAME }}
-        key: ${{ secrets.VM_SSH_KEY }}
-        script: |
-          # 1. Login to GHCR on the VM
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-          # 2. Convert repository name to lowercase for Docker image name
-          IMAGE_NAME=$(echo "ghcr.io/${{ github.repository }}:latest" | tr '[:upper:]' '[:lower:]')
-          # 3. Pull latest image
-          docker pull $IMAGE_NAME
-          # 4. Stop and remove the old container if it exists
-          docker stop betting-engine-bot || true
-          docker rm betting-engine-bot || true
-          # 5. Run the new container
-          docker run -d \
-            --name betting-engine-bot \
-            --restart unless-stopped \
-            --env-file ~/.env \
-            $IMAGE_NAME
-          # 6. Clean up old unused images to save disk space
-          docker image prune -f
+        app-name: 'webapp-tennis-bot'
+        publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+        images: 'ghcr.io/${{ github.repository }}:latest'
