@@ -7,6 +7,8 @@ import sys
 import subprocess
 import certifi
 import requests
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from scipy.stats import poisson
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -159,6 +161,19 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
 
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args): return # Silenciar logs de salud
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+    print(f"Health check server running on port {port}")
+    server.serve_forever()
+
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token or token.startswith("tu_token"):
@@ -171,6 +186,9 @@ def main():
 
     t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
     application.job_queue.run_daily(daily_update_job, t)
+
+    # Iniciar servidor de salud para Azure en un hilo separado
+    threading.Thread(target=run_health_server, daemon=True).start()
 
     print("Motor API Bot Iniciado. En Espera...")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
