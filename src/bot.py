@@ -12,6 +12,8 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from scipy.stats import poisson
 
 # Configuración de logging para ver errores en Azure App Service
 logging.basicConfig(
@@ -196,11 +198,14 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    print(f"Health check server running on port {port}")
+    logger.info(f"Salud: Servidor HTTP activo en puerto {port}")
     server.serve_forever()
 
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if token:
+        token = token.strip('"').strip("'")
+    
     if not token or token.startswith("tu_token"):
         logger.error("TELEGRAM_BOT_TOKEN no encontrado o es el valor por defecto en .env")
         print("ERROR: Abre el archivo .env e inserta tu Token de BotFather.")
