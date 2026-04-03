@@ -33,7 +33,7 @@ def main():
             sys.exit(1)
     else:
         print("Primera instalación detectada. Clonando ATP desde cero...")
-        if not run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir]):
+        if not run_command(["git", "clone", "--depth", "1", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir]):
             print("Error fatal clonando ATP. Abortando.")
             sys.exit(1)
         
@@ -43,7 +43,7 @@ def main():
              sys.exit(1)
     else:
         print("Primera instalación detectada. Clonando WTA desde cero...")
-        if not run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir]):
+        if not run_command(["git", "clone", "--depth", "1", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir]):
             print("Error fatal clonando WTA. Abortando.")
             sys.exit(1)
     
