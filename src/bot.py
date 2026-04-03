@@ -1,8 +1,10 @@
 import os
 import sys
 import logging
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# Configuración de logging inmediata y sin buffer
+# 1. Configuración de logging INMEDIATA
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -10,7 +12,35 @@ logging.basicConfig(
     force=True
 )
 logger = logging.getLogger(__name__)
-logger.info("LOG: Leyendo bot.py - v1.0.3 (Diagnóstico)")
+
+# 2. Servidor de Salud ULTRA-RÁPIDO para Azure (Antes que pandas/numpy)
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+    def log_message(self, format, *args): return
+
+def run_health_server():
+    port = int(os.environ.get("PORT", 80)) # Azure prefiere el puerto 80 por defecto
+    try:
+        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
+        logger.info(f"LOG: Salud: Servidor HTTP activo en puerto {port}")
+        
+        def heartbeat():
+            while True:
+                logger.info("LOG: App Heartbeat - El bot sigue vivo en background.")
+                threading.Event().wait(60)
+                
+        threading.Thread(target=heartbeat, daemon=True).start()
+        server.serve_forever()
+    except Exception as e:
+        logger.error(f"LOG: Error en Servidor Salud: {e}")
+
+# LANZAR SALUD YA MISMO
+threading.Thread(target=run_health_server, daemon=True).start()
+
+logger.info("LOG: Leyendo bot.py - v1.0.4 (Health First)")
 
 import joblib
 import pandas as pd
@@ -19,11 +49,9 @@ import datetime
 import subprocess
 import certifi
 import requests
-import threading
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from scipy.stats import poisson
 
 load_dotenv()
@@ -192,26 +220,6 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
 
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
-    def log_message(self, format, *args): return # Silenciar logs de salud
-
-def run_health_server():
-    port = int(os.environ.get("PORT", 80)) # Azure prefiere el puerto 80 por defecto
-    server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    logger.info(f"LOG: Salud: Servidor HTTP activo en puerto {port}")
-    
-    def heartbeat():
-        while True:
-            logger.info("LOG: App Heartbeat - El bot sigue vivo en background.")
-            threading.Event().wait(60)
-            
-    threading.Thread(target=heartbeat, daemon=True).start()
-    server.serve_forever()
-
 def main():
     try:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -230,9 +238,6 @@ def main():
 
         t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
         application.job_queue.run_daily(daily_update_job, t)
-
-        # Iniciar servidor de salud para Azure en un hilo separado
-        threading.Thread(target=run_health_server, daemon=True).start()
 
         logger.info("LOG: Motor API Bot Iniciado. run_polling...")
         application.run_polling(allowed_updates=Update.ALL_TYPES)
