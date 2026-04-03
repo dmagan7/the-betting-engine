@@ -1,30 +1,34 @@
 import os
+import sys
+import logging
+
+# Configuración de logging inmediata y sin buffer
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout,
+    force=True
+)
+logger = logging.getLogger(__name__)
+logger.info("LOG: Leyendo bot.py - v1.0.3 (Diagnóstico)")
+
 import joblib
 import pandas as pd
 import numpy as np
 import datetime
-import sys
 import subprocess
 import certifi
 import requests
 import threading
-import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from scipy.stats import poisson
 
-# Configuración de logging para ver errores en Azure App Service
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    stream=sys.stdout
-)
-logger = logging.getLogger(__name__)
-
 load_dotenv()
 os.environ['SSL_CERT_FILE'] = certifi.where()
+logger.info("LOG: SSL_CERT_FILE configurado")
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
 try:
@@ -198,33 +202,43 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
 def run_health_server():
     port = int(os.environ.get("PORT", 8080))
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-    logger.info(f"Salud: Servidor HTTP activo en puerto {port}")
+    logger.info(f"LOG: Salud: Servidor HTTP activo en puerto {port}")
+    
+    def heartbeat():
+        while True:
+            logger.info("LOG: App Heartbeat - El bot sigue vivo en background.")
+            threading.Event().wait(60)
+            
+    threading.Thread(target=heartbeat, daemon=True).start()
     server.serve_forever()
 
 def main():
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if token:
-        token = token.strip('"').strip("'")
-    
-    if not token or token.startswith("tu_token"):
-        logger.error("TELEGRAM_BOT_TOKEN no encontrado o es el valor por defecto en .env")
-        print("ERROR: Abre el archivo .env e inserta tu Token de BotFather.")
-        return
-    
-    logger.info("Iniciando aplicación de Telegram...")
+    try:
+        token = os.environ.get("TELEGRAM_BOT_TOKEN")
+        if token:
+            token = token.strip('"').strip("'").strip()
         
-    application = Application.builder().token(token).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("valuebets", valuebets))
+        if not token or token.startswith("tu_token"):
+            logger.error("FATAL: TELEGRAM_BOT_TOKEN no encontrado o es el valor por defecto.")
+            return
+        
+        logger.info(f"LOG: Iniciando aplicación de Telegram con token hash: {hash(token)}")
+            
+        application = Application.builder().token(token).build()
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("valuebets", valuebets))
 
-    t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
-    application.job_queue.run_daily(daily_update_job, t)
+        t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
+        application.job_queue.run_daily(daily_update_job, t)
 
-    # Iniciar servidor de salud para Azure en un hilo separado
-    threading.Thread(target=run_health_server, daemon=True).start()
+        # Iniciar servidor de salud para Azure en un hilo separado
+        threading.Thread(target=run_health_server, daemon=True).start()
 
-    print("Motor API Bot Iniciado. En Espera...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.info("LOG: Motor API Bot Iniciado. run_polling...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
+    except Exception as e:
+        logger.critical(f"FATAL: El bot ha crasheado en main(): {e}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
