@@ -200,7 +200,7 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args): return # Silenciar logs de salud
 
 def run_health_server():
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 80)) # Azure prefiere el puerto 80 por defecto
     server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
     logger.info(f"LOG: Salud: Servidor HTTP activo en puerto {port}")
     
