@@ -8,20 +8,34 @@ import subprocess
 import certifi
 import requests
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from scipy.stats import poisson
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
+
+# Configuración de logging para ver errores en Azure App Service
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 os.environ['SSL_CERT_FILE'] = certifi.where()
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
 try:
-    atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
-    atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-except:
+    if os.path.exists(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl')):
+        atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
+        atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
+        logger.info("Modelos cargados exitosamente.")
+    else:
+        logger.warning("No se encontraron archivos de modelos .pkl. Se requiere entrenamiento.")
+        atp_score_model = None
+        atp_games_model = None
+except Exception as e:
+    logger.error(f"Error cargando modelos: {e}")
     atp_score_model = None
     atp_games_model = None
 
@@ -57,12 +71,15 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. Obtener los deportes activos
     sports_url = "https://api.the-odds-api.com/v4/sports"
     try:
-        sports_resp = requests.get(sports_url, params={"apiKey": ODDS_API_KEY})
+        logger.info("Obteniendo deportes de The Odds API...")
+        sports_resp = requests.get(sports_url, params={"apiKey": ODDS_API_KEY}, timeout=10)
+        sports_resp.raise_for_status()
         sports_data = sports_resp.json()
         
-        # Obtenemos todos los keys de tenis que estén activos (ej. 'tennis_atp_wimbledon', 'tennis_wta_charleston_open')
         tennis_sports = [s['key'] for s in sports_data if 'tennis' in s['key'].lower()]
+        logger.info(f"Deportes de tenis encontrados: {len(tennis_sports)}")
     except Exception as e:
+        logger.error(f"Error conectando a The Odds API (Sports): {e}")
         await update.message.reply_text(f"❌ Error conectando servidor API REST para obtener deportes: {e}")
         return
 
@@ -76,20 +93,28 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         odds_url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
         params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
         try:
-            resp = requests.get(odds_url, params=params)
+            resp = requests.get(odds_url, params=params, timeout=10)
+            resp.raise_for_status()
             sport_matches = resp.json()
             if isinstance(sport_matches, list):
                 matches.extend(sport_matches)
         except Exception as e:
-            print(f"Error descargando cuotas para {sport_key}: {e}")
+            logger.warning(f"Error descargando cuotas para {sport_key}: {e}")
             continue
 
     if not matches:
         await update.message.reply_text("❌ No hay partidos en la base de datos oficial de The Odds API actualmente.")
         return
 
+    # Verificación de modelos antes de procesar
+    if atp_score_model is None or atp_games_model is None:
+        logger.error("Los modelos de IA no están cargados. Abortando scan.")
+        await update.message.reply_text("⚠️ ERROR: Los modelos de IA no se han cargado correctamente. El sistema necesita un reentrenamiento mediante /daily_update (manual o automático).")
+        return
+
     responses = ["💰 *Escaneo de Cuotas Bet365 (Live HTTP)* 💰\n"]
     found_any = False
+    logger.info(f"Procesando {min(len(matches), 30)} partidos...")
     
     # Evaluamos hasta 30 partidos paralelos
     for m in matches[:30]:
@@ -177,8 +202,11 @@ def run_health_server():
 def main():
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     if not token or token.startswith("tu_token"):
+        logger.error("TELEGRAM_BOT_TOKEN no encontrado o es el valor por defecto en .env")
         print("ERROR: Abre el archivo .env e inserta tu Token de BotFather.")
         return
+    
+    logger.info("Iniciando aplicación de Telegram...")
         
     application = Application.builder().token(token).build()
     application.add_handler(CommandHandler("start", start))

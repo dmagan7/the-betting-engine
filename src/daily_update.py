@@ -28,27 +28,41 @@ def main():
     
     # Si es la primera vez que se lanza en Docker, usar clone en lugar de pull
     if os.path.exists(atp_dir) and os.path.exists(os.path.join(atp_dir, ".git")):
-        run_command(["git", "pull"], cwd=atp_dir)
+        if not run_command(["git", "pull"], cwd=atp_dir):
+            print("Error fatal actualizando ATP. Abortando.")
+            sys.exit(1)
     else:
         print("Primera instalación detectada. Clonando ATP desde cero...")
-        run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir])
+        if not run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir]):
+            print("Error fatal clonando ATP. Abortando.")
+            sys.exit(1)
         
     if os.path.exists(wta_dir) and os.path.exists(os.path.join(wta_dir, ".git")):
-        run_command(["git", "pull"], cwd=wta_dir)
+        if not run_command(["git", "pull"], cwd=wta_dir):
+             print("Error fatal actualizando WTA. Abortando.")
+             sys.exit(1)
     else:
         print("Primera instalación detectada. Clonando WTA desde cero...")
-        run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir])
+        if not run_command(["git", "clone", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir]):
+            print("Error fatal clonando WTA. Abortando.")
+            sys.exit(1)
     
     python_exe = sys.executable
     
     print("\n2. Consolidando base de datos y limpiando features antiguas...")
-    run_command([python_exe, "src/data_processing.py"], cwd=base_dir)
+    if not run_command([python_exe, "src/data_processing.py"], cwd=base_dir):
+        print("Error en procesamiento de datos. Abortando.")
+        sys.exit(1)
     
     print("\n3. Calculando métricas Multi-Mercado y Labels...")
-    run_command([python_exe, "src/feature_engineering.py"], cwd=base_dir)
+    if not run_command([python_exe, "src/feature_engineering.py"], cwd=base_dir):
+        print("Error en ingeniería de variables. Abortando.")
+        sys.exit(1)
     
     print("\n4. Reentrenando Inteligencia Artificial (Gradient Boosting & Poisson)...")
-    run_command([python_exe, "src/train_model.py"], cwd=base_dir)
+    if not run_command([python_exe, "src/train_model.py"], cwd=base_dir):
+        print("Error en entrenamiento de modelos. Abortando.")
+        sys.exit(1)
     
     print("\n✅ Actualización diaria de la IA finalizada exitosamente.")
 
