@@ -1,5 +1,5 @@
-import os
-import sys
+import sys, os
+print("LOG: BOOT : Bot script started at the very first line.", flush=True)
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
