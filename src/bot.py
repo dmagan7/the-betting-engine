@@ -50,21 +50,28 @@ threading.Thread(target=run_health_server, daemon=True).start()
 
 logger.info("LOG: STARTUP : Cargando librerías pesadas (pandas, sklearn, etc)...")
 
-import joblib
-import pandas as pd
-import numpy as np
-import datetime
-import subprocess
-import certifi
-import requests
-from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
-from dotenv import load_dotenv
-from scipy.stats import poisson
+try:
+    import joblib
+    import pandas as pd
+    import numpy as np
+    import datetime
+    import subprocess
+    import certifi
+    import requests
+    from telegram import Update
+    from telegram.ext import Application, CommandHandler, ContextTypes
+    from dotenv import load_dotenv
+    from scipy.stats import poisson
 
-load_dotenv()
-os.environ['SSL_CERT_FILE'] = certifi.where()
-logger.info("LOG: SSL_CERT_FILE configurado")
+    load_dotenv()
+    os.environ['SSL_CERT_FILE'] = certifi.where()
+    logger.info("LOG: STARTUP : Librerías cargadas y SSL_CERT_FILE configurado")
+except Exception as e:
+    logger.error(f"LOG: FATAL : Error durante la carga de dependencias: {e}", exc_info=True)
+    # No salimos todavía para que el health server siga vivo y podamos ver el log
+    import time
+    time.sleep(300) 
+    sys.exit(1)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
 try:
