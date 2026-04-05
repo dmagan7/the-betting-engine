@@ -120,17 +120,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
-    print("[CRON JOB] Iniciando rutina 24H de automatización MLOps...")
+    print("[CRON JOB] Iniciando rutina Pro 24H de automatización MLOps...")
     python_exe = sys.executable
     script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
     subprocess.run([python_exe, script_path])
-    global atp_score_model, atp_games_model
+    
+    global atp_win_model, wta_win_model, player_profiles
     try:
-        atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
-        atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-        print("[CRON JOB] Modelos re-cargados en caliente.")
+        # Recargar modelos de Ganador (Pro)
+        atp_win_path = os.path.join(MODELS_DIR, 'atp_win_model.pkl')
+        wta_win_path = os.path.join(MODELS_DIR, 'wta_win_model.pkl')
+        if os.path.exists(atp_win_path): atp_win_model = joblib.load(atp_win_path)
+        if os.path.exists(wta_win_path): wta_win_model = joblib.load(wta_win_path)
+        
+        # Recargar Perfiles
+        profiles_path = os.path.join(PROCESSED_DIR, 'player_profiles.csv')
+        if os.path.exists(profiles_path): player_profiles = pd.read_csv(profiles_path)
+        
+        print("[CRON JOB] Modelos Pro y Perfiles re-cargados en caliente con éxito.")
     except Exception as e:
-        print(f"[CRON JOB] Error recargando modelos: {e}")
+        print(f"[CRON JOB] Error recargando recursos Pro: {e}")
     print("--------------------------------------------------")
 
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
