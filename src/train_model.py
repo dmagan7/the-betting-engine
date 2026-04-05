@@ -10,9 +10,15 @@ def process_circuit(df, name, models_dir):
     # Para apuestas precisas estandarizadas, modelaremos partidos al Mejor de 3 (Best of 3)
     df_bo3 = df[df['best_of'] == 3].copy()
     
-    features = ['surface_target', 'p1_rank', 'p1_age', 'p1_ht', 'p2_rank', 'p2_age', 'p2_ht']
+    features = [
+        'rank_diff', 'age_diff', 'ht_diff', 'form_diff', 'surface_diff',
+        'p1_rank', 'p2_rank', 'p1_form', 'p2_form', 'p1_surface_eff', 'p2_surface_eff',
+        'p1_fatigue', 'p2_fatigue', 'p1_hand', 'p2_hand', 'tourney_level'
+    ]
     X = df_bo3[features]
     
+    # Target 0: Match Winner (p1_won)
+    y_win = df_bo3['p1_won']
     # Target 1: Resultados Exactos / Sets. (0: 2-0, 1: 2-1, 2: 0-2, 3: 1-2)
     y_score = df_bo3['exact_score']
     # Target 2: Total de Juegos
@@ -25,6 +31,12 @@ def process_circuit(df, name, models_dir):
     yscore_train = y_score.iloc[:split_idx]
     ygames_train = y_games.iloc[:split_idx]
     
+    print("Entrenando Clasificador de Ganador (Match Winner)...")
+    model_win = HistGradientBoostingClassifier(learning_rate=0.05, max_depth=6, random_state=42, max_iter=200)
+    model_win.fit(X_train, y_win.iloc[:split_idx])
+    win_path = os.path.join(models_dir, f"{name.lower()}_win_model.pkl")
+    joblib.dump(model_win, win_path)
+
     print("Entrenando Clasificador de Resultados Exactos Automático...")
     model_score = HistGradientBoostingClassifier(learning_rate=0.05, max_depth=6, random_state=42, max_iter=150)
     model_score.fit(X_train, yscore_train)

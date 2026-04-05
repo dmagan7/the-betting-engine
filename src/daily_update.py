@@ -59,12 +59,12 @@ def main():
         print("Error en ingeniería de variables. Abortando.")
         sys.exit(1)
     
-    print("\n4. Reentrenando Inteligencia Artificial (Gradient Boosting & Poisson)...")
-    if not run_command([python_exe, "src/train_model.py"], cwd=base_dir):
-        print("Error en entrenamiento de modelos. Abortando.")
-        sys.exit(1)
+    print("\n5. Actualizando perfiles Pro de jugadores para el Bot...")
+    if not run_command([python_exe, "src/generate_player_profiles.py"], cwd=base_dir):
+        print("Error generando perfiles de jugadores.")
+        # No salimos con error aquí para que los modelos al menos se guarden
     
-    print("\n✅ Actualización diaria de la IA finalizada exitosamente.")
+    print("\n✅ Actualización Pro Diaria finalizada exitosamente.")
 
 if __name__ == "__main__":
     main()

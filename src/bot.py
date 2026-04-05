@@ -74,19 +74,38 @@ except Exception as e:
     sys.exit(1)
 
 MODELS_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
-try:
-    if os.path.exists(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl')):
-        atp_score_model = joblib.load(os.path.join(MODELS_DIR, 'atp_exact_score_model.pkl'))
-        atp_games_model = joblib.load(os.path.join(MODELS_DIR, 'atp_total_games_model.pkl'))
-        logger.info("Modelos cargados exitosamente.")
-    else:
-        logger.warning("No se encontraron archivos de modelos .pkl. Se requiere entrenamiento.")
-        atp_score_model = None
-        atp_games_model = None
-except Exception as e:
-    logger.error(f"Error cargando modelos: {e}")
-    atp_score_model = None
-    atp_games_model = None
+PROCESSED_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed')
+
+atp_win_model = None
+wta_win_model = None
+player_profiles = pd.DataFrame()
+
+def load_models_and_data():
+    global atp_win_model, wta_win_model, player_profiles
+    try:
+        # Modelos de Ganador (Nuevos Pro)
+        atp_win_path = os.path.join(MODELS_DIR, 'atp_win_model.pkl')
+        wta_win_path = os.path.join(MODELS_DIR, 'wta_win_model.pkl')
+        
+        if os.path.exists(atp_win_path):
+            atp_win_model = joblib.load(atp_win_path)
+            logger.info("Modelo ATP Win Pro cargado.")
+        if os.path.exists(wta_win_path):
+            wta_win_model = joblib.load(wta_win_path)
+            logger.info("Modelo WTA Win Pro cargado.")
+            
+        # Perfiles de jugadores
+        profiles_path = os.path.join(PROCESSED_DIR, 'player_profiles.csv')
+        if os.path.exists(profiles_path):
+            player_profiles = pd.read_csv(profiles_path)
+            logger.info(f"Perfiles de {len(player_profiles)} jugadores cargados.")
+        else:
+            logger.warning("No se encontró player_profiles.csv. Real-time predictions will be limited.")
+            
+    except Exception as e:
+        logger.error(f"Error cargando recursos de IA: {e}")
+
+load_models_and_data()
 
 def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     if prob == 0 or odds <= 1: return 0.0
@@ -156,80 +175,129 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # Verificación de modelos antes de procesar
-    if atp_score_model is None or atp_games_model is None:
+    if atp_win_model is None and wta_win_model is None:
         logger.error("Los modelos de IA no están cargados. Abortando scan.")
-        await update.message.reply_text("⚠️ ERROR: Los modelos de IA no se han cargado correctamente. El sistema necesita un reentrenamiento mediante /daily_update (manual o automático).")
+        await update.message.reply_text("⚠️ ERROR: Los modelos Pro no están cargados. El sistema requiere entrenamiento.")
         return
 
-    responses = ["💰 *Escaneo de Cuotas Bet365 (Live HTTP)* 💰\n"]
+    responses = ["💰 *Escaneo Pro Bet365 (Próximas 12h)* 💰\n"]
     found_any = False
-    logger.info(f"Procesando {min(len(matches), 30)} partidos...")
     
-    # Evaluamos hasta 30 partidos paralelos
-    for m in matches[:30]:
+    # Filtrar partidos por tiempo (Próximas 12 horas)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    twelve_hours_later = now + datetime.timedelta(hours=12)
+    
+    analyzed_count = 0
+    logger.info(f"Procesando {len(matches)} partidos de la API...")
+    
+    for m in matches:
+        commence_time = pd.to_datetime(m['commence_time'])
+        if commence_time > twelve_hours_later:
+            continue
+            
+        analyzed_count += 1
         if not m.get('bookmakers'): continue
-        bm = m['bookmakers'][0] # Estamos seguros de que es bet365 por la API filter
+        bm = m['bookmakers'][0] # bet365
         
         p1_name = m['home_team']
         p2_name = m['away_team']
-        p1_odds, p2_odds, over_odds, over_line = 0, 0, 0, 21.5
+        sport_key = m['sport_key'] # tennis_atp or tennis_wta
+        model = atp_win_model if 'atp' in sport_key else wta_win_model
         
+        if model is None: continue
+
+        p1_odds, p2_odds = 0, 0
         for market in bm['markets']:
             if market['key'] == 'h2h':
                 for out in market['outcomes']:
                     if out['name'] == p1_name: p1_odds = out['price']
                     else: p2_odds = out['price']
-            elif market['key'] == 'totals':
-                for out in market['outcomes']:
-                    if out['name'] == 'Over':
-                        over_line = out.get('point', 21.5)
-                        over_odds = out['price']
-                        
+        
         if p1_odds == 0 or p2_odds == 0: continue
+
+        # LOOKUP JUGADORES
+        prof1 = player_profiles[player_profiles['name'] == p1_name]
+        prof2 = player_profiles[player_profiles['name'] == p2_name]
         
-        # Predictor IA en base a jugador basico/general
-        df_pred = pd.DataFrame([{
-            'surface_target': 0, 'p1_rank': 150, 'p1_age': 26, 'p1_ht': 185,
-            'p2_rank': 150, 'p2_age': 26, 'p2_ht': 185
+        def get_val(p, col, default):
+            return p[col].iloc[0] if not p.empty and not pd.isna(p[col].iloc[0]) else default
+
+        # Extraer características
+        rank1, rank2 = get_val(prof1, 'rank', 250), get_val(prof2, 'rank', 250)
+        form1, form2 = get_val(prof1, 'form', 0.5), get_val(prof2, 'form', 0.5)
+        
+        # Detección de superficie por nombre del torneo (simplificado)
+        surface = "hard"
+        comp_name = m.get('competition_name', '').lower()
+        if 'clay' in comp_name or 'tierra' in comp_name or 'roland' in comp_name: surface = "clay"
+        elif 'grass' in comp_name or 'hierba' in comp_name or 'wimbledon' in comp_name: surface = "grass"
+        
+        eff1 = get_val(prof1, f'eff_{surface}', 0.5)
+        eff2 = get_val(prof2, f'eff_{surface}', 0.5)
+        
+        age1, age2 = get_val(prof1, 'age', 26), get_val(prof2, 'age', 26)
+        ht1, ht2 = get_val(prof1, 'ht', 185), get_val(prof2, 'ht', 185)
+        hand1 = 1 if get_val(prof1, 'hand', 'R') == 'L' else 0
+        hand2 = 1 if get_val(prof2, 'hand', 'R') == 'L' else 0
+        
+        # Dataset para predicción
+        df_ml = pd.DataFrame([{
+            'rank_diff': rank2 - rank1,
+            'age_diff': age1 - age2,
+            'ht_diff': ht1 - ht2,
+            'form_diff': form1 - form2,
+            'surface_diff': eff1 - eff2,
+            'p1_rank': rank1, 'p2_rank': rank2,
+            'p1_form': form1, 'p2_form': form2,
+            'p1_surface_eff': eff1, 'p2_surface_eff': eff2,
+            'p1_fatigue': 30, 'p2_fatigue': 30,
+            'p1_hand': hand1, 'p2_hand': hand2,
+            'tourney_level': 2 # ATP 500 aprox
         }])
+
+        prob_p1_win = model.predict_proba(df_ml)[0][1] # p1_won = 1
+        prob_p2_win = 1 - prob_p1_win
         
-        score_probs = atp_score_model.predict_proba(df_pred)[0]
-        prob_p1_win = score_probs[0] + score_probs[1]
-        
-        texto = f"\n🔹 *{p1_name} vs {p2_name}*\n"
+        texto = f"\n🎾 *{p1_name} vs {p2_name}*\n"
+        texto += f"🏆 {m.get('competition_name', 'Torneo')} | 🕒 {commence_time.strftime('%H:%M')}\n"
         bets_found = False
         
+        # Valor en P1
         edge_p1 = (prob_p1_win * p1_odds) - 1
-        if edge_p1 > 0.03:
+        if edge_p1 > 0.05:
             stake = calculate_kelly(prob_p1_win, p1_odds)
-            texto += f"✅ Gana *{p1_name}* | Cuota: {p1_odds}\n"
-            texto += f"   └ Edge: +{edge_p1*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
+            reasons = []
+            if eff1 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
+            if form1 > 0.75: reasons.append("Racha Octava")
+            if rank1 < rank2 - 60: reasons.append("Mucho Mejor Rank")
+            
+            texto += f"✅ VALOR: *{p1_name}* @{p1_odds}\n"
+            texto += f"   └ Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_p1*100:.1f}%\n"
+            if reasons: texto += f"   └ Factores: _{', '.join(reasons)}_\n"
+            texto += f"   └ Stake: *{stake:.1f} uds*\n"
             bets_found = True
             
-        prob_p2_win = score_probs[2] + score_probs[3]
+        # Valor en P2
         edge_p2 = (prob_p2_win * p2_odds) - 1
-        if edge_p2 > 0.03:
+        if edge_p2 > 0.05:
             stake = calculate_kelly(prob_p2_win, p2_odds)
-            texto += f"✅ Gana *{p2_name}* | Cuota: {p2_odds}\n"
-            texto += f"   └ Edge: +{edge_p2*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
+            reasons = []
+            if eff2 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
+            if form2 > 0.75: reasons.append("Racha Octava")
+            if rank2 < rank1 - 60: reasons.append("Mucho Mejor Rank")
+            
+            texto += f"✅ VALOR: *{p2_name}* @{p2_odds}\n"
+            texto += f"   └ Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_p2*100:.1f}%\n"
+            if reasons: texto += f"   └ Factores: _{', '.join(reasons)}_\n"
+            texto += f"   └ Stake: *{stake:.1f} uds*\n"
             bets_found = True
             
-        if over_odds > 0:
-            expected_games = atp_games_model.predict(df_pred)[0]
-            prob_over = 1 - poisson.cdf(int(over_line), mu=expected_games)
-            edge_over = (prob_over * over_odds) - 1
-            if edge_over > 0.03:
-                stake = calculate_kelly(prob_over, over_odds)
-                texto += f"✅ Juegos > {over_line} | Cuota: {over_odds}\n"
-                texto += f"   └ Edge: +{edge_over*100:.1f}% | Stake Kelly: *{stake:.1f} U.*\n"
-                bets_found = True
-                
         if bets_found:
             responses.append(texto)
             found_any = True
             
     if not found_any:
-        responses.append("\n❌ Analizados 30 partidos de la API, pero ninguno ofrece Cuotas con EV+ Positivo frente a nuestra IA.")
+        responses.append(f"\n❌ Analizados {analyzed_count} partidos (12h), pero ninguno ofrece valor suficiente (+5% Edge).")
         
     msg = "\n".join(responses)
     for i in range(0, len(msg), 4000):

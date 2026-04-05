@@ -8,10 +8,14 @@ def load_and_combine(directory, prefix, start_year=2010, end_year=2024):
         filepath = os.path.join(directory, filename)
         if os.path.exists(filepath):
             try:
+                print(f"Cargando: {filepath}")
                 df = pd.read_csv(filepath)
+                print(f"  -> Filas: {df.shape[0]}")
                 df_list.append(df)
             except Exception as e:
                 print(f"Error leyendo {filepath}: {e}")
+        else:
+            print(f"No encontrado: {filepath}")
                 
     if not df_list:
         return pd.DataFrame()
@@ -22,6 +26,9 @@ def load_and_combine(directory, prefix, start_year=2010, end_year=2024):
 def clean_data(df):
     if df.empty:
         return df
+    
+    # Normalizar nombres de columnas a minúsculas y sin espacios ni comillas literales
+    df.columns = [c.lower().strip().strip("'").strip('"') for c in df.columns]
     
     # Convertir fechas de formato YYYYMMDD a datetime
     if 'tourney_date' in df.columns:
