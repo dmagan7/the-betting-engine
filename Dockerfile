@@ -15,4 +15,6 @@ COPY . .
 # Al iniciar por primera vez el contenedor, forzamos un reentrenamiento fresco
 RUN python src/daily_update.py
 
+EXPOSE 80
+
 CMD ["python", "src/bot.py"]

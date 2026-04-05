@@ -16,31 +16,39 @@ logger = logging.getLogger(__name__)
 # 2. Servidor de Salud ULTRA-RÁPIDO para Azure (Antes que pandas/numpy)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"OK")
+        if self.path == '/':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK - The Betting Engine is running.")
+        else:
+            self.send_response(404)
+            self.end_headers()
     def log_message(self, format, *args): return
 
 def run_health_server():
-    port = int(os.environ.get("PORT", 80)) # Azure prefiere el puerto 80 por defecto
+    # Azure a veces usa WEBSITES_PORT en lugar de PORT
+    port_str = os.environ.get("WEBSITES_PORT") or os.environ.get("PORT") or "80"
     try:
+        port = int(port_str)
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        logger.info(f"LOG: Salud: Servidor HTTP activo en puerto {port}")
+        logger.info(f"LOG: SALUD : Servidor HTTP de control activo en puerto {port}")
         
         def heartbeat():
             while True:
-                logger.info("LOG: App Heartbeat - El bot sigue vivo en background.")
-                threading.Event().wait(60)
+                logger.info("LOG: HEARTBEAT : El bot y el servidor de salud siguen vivos.")
+                threading.Event().wait(120) # Reducimos frecuencia para no saturar logs
                 
         threading.Thread(target=heartbeat, daemon=True).start()
         server.serve_forever()
     except Exception as e:
-        logger.error(f"LOG: Error en Servidor Salud: {e}")
+        logger.error(f"LOG: ERROR : Fallo crítico en Servidor de Salud: {e}")
 
-# LANZAR SALUD YA MISMO
+# LANZAR SALUD YA MISMO (Hilo no-bloqueante)
+logger.info("LOG: STARTUP : Iniciando health check server...")
 threading.Thread(target=run_health_server, daemon=True).start()
 
-logger.info("LOG: Leyendo bot.py - v1.0.4 (Health First)")
+logger.info("LOG: STARTUP : Cargando librerías pesadas (pandas, sklearn, etc)...")
 
 import joblib
 import pandas as pd
@@ -227,10 +235,11 @@ def main():
             token = token.strip('"').strip("'").strip()
         
         if not token or token.startswith("tu_token"):
-            logger.error("FATAL: TELEGRAM_BOT_TOKEN no encontrado o es el valor por defecto.")
+            logger.error("LOG: FATAL : TELEGRAM_BOT_TOKEN no configurado en Azure App Settings.")
+            logger.error("LOG: FATAL : El contenedor se cerrará ahora para evitar bucles de error.")
             return
         
-        logger.info(f"LOG: Iniciando aplicación de Telegram con token hash: {hash(token)}")
+        logger.info(f"LOG: STARTUP : Token validado (hash: {hash(token)})")
             
         application = Application.builder().token(token).build()
         application.add_handler(CommandHandler("start", start))
