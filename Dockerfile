@@ -12,8 +12,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Al iniciar por primera vez el contenedor, forzamos un reentrenamiento fresco
-RUN python src/daily_update.py
+# Creamos directorios necesarios para prevenir errores de FileNotFoundError
+RUN mkdir -p models data/processed
 
 EXPOSE 80
 

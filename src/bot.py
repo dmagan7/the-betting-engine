@@ -350,6 +350,37 @@ async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error en debug_info: {e}", exc_info=True)
         await update.message.reply_text(f"❌ Error interno en debug: {e}")
 
+is_training = False
+
+async def train_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global is_training
+    if is_training:
+        await update.message.reply_text("⚠️ El proceso de entrenamiento ya está en curso. Por favor, espera.")
+        return
+        
+    await update.message.reply_text("⏳ Iniciando entrenamiento y automatización MLOps en segundo plano. Esto tardará unos minutos...")
+    
+    def run_training_bg():
+        global is_training
+        is_training = True
+        try:
+            logger.info("LOG: MLOPS : Iniciando entrenamiento forzado desde Telegram...")
+            python_exe = sys.executable
+            script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
+            subprocess.run([python_exe, script_path], check=True)
+            
+            # Recargar en memoria después del training
+            logger.info("LOG: MLOPS : Recargando modelos y perfiles...")
+            load_models_and_data()
+            logger.info("LOG: MLOPS : Entrenamiento completado exitosamente.")
+        except Exception as e:
+            logger.error(f"LOG: ERROR : Fallo en el entrenamiento: {e}")
+        finally:
+            is_training = False
+
+    # Ejecutar en hilo separado para no bloquear el bot
+    threading.Thread(target=run_training_bg, daemon=True).start()
+
 def main():
     try:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -367,6 +398,7 @@ def main():
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("valuebets", valuebets))
         application.add_handler(CommandHandler("debug", debug_info))
+        application.add_handler(CommandHandler("train", train_models))
 
         t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
         application.job_queue.run_daily(daily_update_job, t)
