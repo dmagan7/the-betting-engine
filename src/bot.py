@@ -82,28 +82,41 @@ player_profiles = pd.DataFrame()
 
 def load_models_and_data():
     global atp_win_model, wta_win_model, player_profiles
+    logger.info(f"LOG: IA : Iniciando carga desde {MODELS_DIR}")
     try:
+        if not os.path.exists(MODELS_DIR):
+            logger.error(f"LOG: IA : Directorio de modelos NO EXISTE: {MODELS_DIR}")
+            os.makedirs(MODELS_DIR, exist_ok=True)
+
         # Modelos de Ganador (Nuevos Pro)
         atp_win_path = os.path.join(MODELS_DIR, 'atp_win_model.pkl')
         wta_win_path = os.path.join(MODELS_DIR, 'wta_win_model.pkl')
         
+        logger.info(f"Probando ATP Win en: {atp_win_path}")
         if os.path.exists(atp_win_path):
             atp_win_model = joblib.load(atp_win_path)
-            logger.info("Modelo ATP Win Pro cargado.")
+            logger.info("Modelo ATP Win Pro cargado con éxito.")
+        else:
+            logger.warning(f"ADVERTENCIA: Archivo ATP Win NO ENCONTRADO en {atp_win_path}")
+
+        logger.info(f"Probando WTA Win en: {wta_win_path}")
         if os.path.exists(wta_win_path):
             wta_win_model = joblib.load(wta_win_path)
-            logger.info("Modelo WTA Win Pro cargado.")
+            logger.info("Modelo WTA Win Pro cargado con éxito.")
+        else:
+            logger.warning(f"ADVERTENCIA: Archivo WTA Win NO ENCONTRADO en {wta_win_path}")
             
         # Perfiles de jugadores
         profiles_path = os.path.join(PROCESSED_DIR, 'player_profiles.csv')
+        logger.info(f"Probando perfiles en: {profiles_path}")
         if os.path.exists(profiles_path):
             player_profiles = pd.read_csv(profiles_path)
             logger.info(f"Perfiles de {len(player_profiles)} jugadores cargados.")
         else:
-            logger.warning("No se encontró player_profiles.csv. Real-time predictions will be limited.")
+            logger.warning(f"ADVERTENCIA: player_profiles.csv NO ENCONTRADO en {profiles_path}")
             
     except Exception as e:
-        logger.error(f"Error cargando recursos de IA: {e}")
+        logger.error(f"LOG: IA : Error crítico cargando recursos: {e}", exc_info=True)
 
 load_models_and_data()
 
@@ -312,6 +325,26 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
 
+async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra información de diagnóstico del servidor."""
+    text = "🔍 *Diagnóstico del Sistema*\n\n"
+    text += f"📅 Fecha server: {datetime.datetime.now()}\n"
+    text += f"📂 Directorio actual: `{os.getcwd()}`\n"
+    text += f"📂 MODELS_DIR: `{MODELS_DIR}`\n"
+    
+    # Listar archivos en models
+    if os.path.exists(MODELS_DIR):
+        files = os.listdir(MODELS_DIR)
+        text += f"📄 Archivos en models: {', '.join(files) if files else 'VACÍO'}\n"
+    else:
+        text += "❌ MODELS_DIR no existe.\n"
+        
+    text += f"\n🤖 ATP Model: {'Cargado ✅' if atp_win_model else 'FALTA ❌'}\n"
+    text += f"🤖 WTA Model: {'Cargado ✅' if wta_win_model else 'FALTA ❌'}\n"
+    text += f"📈 Perfiles: {len(player_profiles)} cargados\n"
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
+
 def main():
     try:
         token = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -328,6 +361,7 @@ def main():
         application = Application.builder().token(token).build()
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("valuebets", valuebets))
+        application.add_handler(CommandHandler("debug", debug_info))
 
         t = datetime.time(hour=4, minute=0, tzinfo=datetime.timezone.utc)
         application.job_queue.run_daily(daily_update_job, t)
