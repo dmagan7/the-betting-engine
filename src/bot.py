@@ -327,23 +327,28 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra información de diagnóstico del servidor."""
-    text = "🔍 *Diagnóstico del Sistema*\n\n"
-    text += f"📅 Fecha server: {datetime.datetime.now()}\n"
-    text += f"📂 Directorio actual: `{os.getcwd()}`\n"
-    text += f"📂 MODELS_DIR: `{MODELS_DIR}`\n"
-    
-    # Listar archivos en models
-    if os.path.exists(MODELS_DIR):
-        files = os.listdir(MODELS_DIR)
-        text += f"📄 Archivos en models: {', '.join(files) if files else 'VACÍO'}\n"
-    else:
-        text += "❌ MODELS_DIR no existe.\n"
+    try:
+        text = "🔍 DIAGNÓSTICO DEL SISTEMA 🔍\n\n"
+        text += f"📅 Fecha server: {datetime.datetime.now()}\n"
+        text += f"📂 Directorio actual: {os.getcwd()}\n"
+        text += f"📂 MODELS_DIR: {MODELS_DIR}\n"
         
-    text += f"\n🤖 ATP Model: {'Cargado ✅' if atp_win_model else 'FALTA ❌'}\n"
-    text += f"🤖 WTA Model: {'Cargado ✅' if wta_win_model else 'FALTA ❌'}\n"
-    text += f"📈 Perfiles: {len(player_profiles)} cargados\n"
-    
-    await update.message.reply_text(text, parse_mode='Markdown')
+        # Listar archivos en models
+        if os.path.exists(MODELS_DIR):
+            files = os.listdir(MODELS_DIR)
+            text += f"📄 Archivos en models: {', '.join(files) if files else 'VACÍO'}\n"
+        else:
+            text += "❌ MODELS_DIR no existe.\n"
+            
+        text += f"\n🤖 ATP Model: {'Cargado ✅' if atp_win_model else 'FALTA ❌'}\n"
+        text += f"🤖 WTA Model: {'Cargado ✅' if wta_win_model else 'FALTA ❌'}\n"
+        text += f"📈 Perfiles: {len(player_profiles)} cargados\n"
+        
+        # No usar Markdown para evitar errores de parseo con caracteres especiales
+        await update.message.reply_text(text)
+    except Exception as e:
+        logger.error(f"Error en debug_info: {e}", exc_info=True)
+        await update.message.reply_text(f"❌ Error interno en debug: {e}")
 
 def main():
     try:
