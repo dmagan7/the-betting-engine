@@ -219,7 +219,8 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
             
         analyzed_count += 1
-        if not m.get('bookmakers'): continue        bm = m['bookmakers'][0] # bet365
+        if not m.get('bookmakers'): continue
+        bm = m['bookmakers'][0] # bet365
         
         p1_name = m['home_team']
         p2_name = m['away_team']
