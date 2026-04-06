@@ -360,26 +360,34 @@ async def train_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text("⏳ Iniciando entrenamiento y automatización MLOps en segundo plano. Esto tardará unos minutos...")
     
-    def run_training_bg():
+    async def run_training_bg():
         global is_training
         is_training = True
         try:
+            import asyncio
             logger.info("LOG: MLOPS : Iniciando entrenamiento forzado desde Telegram...")
             python_exe = sys.executable
             script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
-            subprocess.run([python_exe, script_path], check=True)
             
-            # Recargar en memoria después del training
-            logger.info("LOG: MLOPS : Recargando modelos y perfiles...")
-            load_models_and_data()
-            logger.info("LOG: MLOPS : Entrenamiento completado exitosamente.")
+            # Ejecutar de forma asíncrona para no bloquear el bot
+            process = await asyncio.create_subprocess_exec(python_exe, script_path)
+            await process.communicate()
+            
+            if process.returncode == 0:
+                logger.info("LOG: MLOPS : Recargando modelos y perfiles...")
+                load_models_and_data()
+                await update.message.reply_text("✅ *ENTRENAMIENTO COMPLETADO*\nModelos y perfiles generados. ¡Ya puedes usar /valuebets! 🚀", parse_mode='Markdown')
+            else:
+                await update.message.reply_text("⚠️ *ERROR DURANTE EL ENTRENAMIENTO*\nRevisa los logs del servidor.", parse_mode='Markdown')
         except Exception as e:
             logger.error(f"LOG: ERROR : Fallo en el entrenamiento: {e}")
+            await update.message.reply_text(f"❌ Error crítico en entrenamiento: {e}")
         finally:
             is_training = False
 
-    # Ejecutar en hilo separado para no bloquear el bot
-    threading.Thread(target=run_training_bg, daemon=True).start()
+    # Ejecutar tarea asíncrona en segundo plano nativamente
+    import asyncio
+    asyncio.create_task(run_training_bg())
 
 def main():
     try:
