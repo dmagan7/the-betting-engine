@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaaaal.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -404,9 +404,24 @@ def main():
         application.job_queue.run_daily(daily_update_job, t)
 
         logger.info("LOG: Motor API Bot Iniciado. run_polling...")
-        application.run_polling(allowed_updates=Update.ALL_TYPES)
+        
+        # Bucle para manejar conflictos de polling en Azure (Blue/Green deploys)
+        import time
+        from telegram.error import Conflict
+        
+        while True:
+            try:
+                application.run_polling(allowed_updates=Update.ALL_TYPES)
+                break  # Si termina limpio (ej. señal del sistema), salimos
+            except Conflict:
+                logger.warning("LOG: CONFLICT : Otra instancia de polling activa (posible solapamiento de Azure). Reintentando en 15s...")
+                time.sleep(15)
+            except Exception as e:
+                logger.error(f"LOG: ERROR : Error inesperado en polling: {e}. Reintentando en 20s...")
+                time.sleep(20)
+                
     except Exception as e:
-        logger.critical(f"FATAL: El bot ha crasheado en main(): {e}", exc_info=True)
+        logger.critical(f"FATAL: Error irrecuperable en main(): {e}", exc_info=True)
         sys.exit(1)
 
 if __name__ == "__main__":
