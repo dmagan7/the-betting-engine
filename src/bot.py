@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaaaal.")
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaal.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -202,24 +202,24 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ ERROR: Los modelos Pro no están cargados. El sistema requiere entrenamiento.")
         return
 
-    responses = ["💰 *Escaneo Pro Bet365 (Próximas 12h)* 💰\n"]
+    responses = ["💰 *Escaneo Pro Bet365 (Próximas 24h)* 💰\n"]
     found_any = False
     
-    # Filtrar partidos por tiempo (Próximas 12 horas)
+    # Filtrar partidos por tiempo (Próximas 24 horas)
     now = datetime.datetime.now(datetime.timezone.utc)
-    twelve_hours_later = now + datetime.timedelta(hours=12)
+    twentyfour_hours_later = now + datetime.timedelta(hours=24)
     
     analyzed_count = 0
+    analyzed_log = []
     logger.info(f"Procesando {len(matches)} partidos de la API...")
     
     for m in matches:
         commence_time = pd.to_datetime(m['commence_time'])
-        if commence_time > twelve_hours_later:
+        if commence_time > twentyfour_hours_later:
             continue
             
         analyzed_count += 1
-        if not m.get('bookmakers'): continue
-        bm = m['bookmakers'][0] # bet365
+        if not m.get('bookmakers'): continue        bm = m['bookmakers'][0] # bet365
         
         p1_name = m['home_team']
         p2_name = m['away_team']
@@ -317,10 +317,22 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if bets_found:
             responses.append(texto)
             found_any = True
+        else:
+            # Registrar para el resumen
+            max_edge = max(edge_p1, edge_p2) * 100
+            fav = p1_name if edge_p1 > edge_p2 else p2_name
+            analyzed_log.append(f"🔸 {p1_name} v {p2_name} (Mejor edge: {max_edge:.1f}% en {fav})")
             
     if not found_any:
-        responses.append(f"\n❌ Analizados {analyzed_count} partidos (12h), pero ninguno ofrece valor suficiente (+5% Edge).")
+        responses.append(f"\n❌ Ninguno de los {analyzed_count} partidos en las próximas 24h ofrece valor suficiente (+5% Edge).\n")
         
+    if analyzed_log:
+        responses.append("\n📋 *Resumen de Análisis Interno (Top 15)*:")
+        # Mostrar solo los 15 con mejor edge para no saturar Telegram
+        for log_line in analyzed_log[:15]:
+            responses.append(log_line)
+        if len(analyzed_log) > 15:
+            responses.append(f"...y {len(analyzed_log) - 15} más.")        
     msg = "\n".join(responses)
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
