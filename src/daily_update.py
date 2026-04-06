@@ -58,6 +58,11 @@ def main():
     if not run_command([python_exe, "src/feature_engineering.py"], cwd=base_dir):
         print("Error en ingeniería de variables. Abortando.")
         sys.exit(1)
+        
+    print("\n4. Entrenando Modelos de Predicción Pro...")
+    if not run_command([python_exe, "src/train_model.py"], cwd=base_dir):
+        print("Error entrenando modelos. Abortando.")
+        sys.exit(1)
     
     print("\n5. Actualizando perfiles Pro de jugadores para el Bot...")
     if not run_command([python_exe, "src/generate_player_profiles.py"], cwd=base_dir):
