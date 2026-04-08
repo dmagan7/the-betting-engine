@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaal.")
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -211,11 +211,15 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     analyzed_count = 0
     analyzed_log = []
+    skipped_time = 0
     logger.info(f"Procesando {len(matches)} partidos de la API...")
     
     for m in matches:
-        commence_time = pd.to_datetime(m['commence_time'])
+        # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
+        # que no se pueden comparar con now (tz-aware), saltándose todos los partidos silenciosamente
+        commence_time = pd.to_datetime(m['commence_time'], utc=True)
         if commence_time > twentyfour_hours_later:
+            skipped_time += 1
             continue
             
         analyzed_count += 1
@@ -227,7 +231,9 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sport_key = m['sport_key'] # tennis_atp or tennis_wta
         model = atp_win_model if 'atp' in sport_key else wta_win_model
         
-        if model is None: continue
+        if model is None:
+            logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
+            continue
 
         p1_odds, p2_odds = 0, 0
         for market in bm['markets']:
@@ -242,21 +248,47 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         prof1 = player_profiles[player_profiles['name'] == p1_name]
         prof2 = player_profiles[player_profiles['name'] == p2_name]
         
+        p1_found = not prof1.empty
+        p2_found = not prof2.empty
+        
         def get_val(p, col, default):
-            return p[col].iloc[0] if not p.empty and not pd.isna(p[col].iloc[0]) else default
+            if p.empty: return default
+            val = p[col].iloc[0]
+            return default if pd.isna(val) else val
+
+        # Probabilidad implícita del bookmaker (sin margen) como prior
+        # BUG FIX 2: Cuando los jugadores no están en perfiles, los defaults idénticos
+        # hacen que el modelo prediga exactamente 50% para ambos → nunca hay edge.
+        # Usamos la prob implícita del bookmaker como punto de partida más realista.
+        total_implied = (1/p1_odds) + (1/p2_odds)
+        bm_prob_p1 = (1/p1_odds) / total_implied  # prob normalizada sin margen
+        bm_prob_p2 = (1/p2_odds) / total_implied
 
         # Extraer características
-        rank1, rank2 = get_val(prof1, 'rank', 250), get_val(prof2, 'rank', 250)
-        form1, form2 = get_val(prof1, 'form', 0.5), get_val(prof2, 'form', 0.5)
+        rank1 = get_val(prof1, 'rank', None)
+        rank2 = get_val(prof2, 'rank', None)
+        
+        # Si falta el ranking, inferirlo desde las cuotas del bookmaker
+        # Un favorito con cuota 1.5 implica aprox ranking relativo mejor
+        if rank1 is None and rank2 is None:
+            rank1, rank2 = 100, 100  # sin diferencia
+        elif rank1 is None:
+            rank1 = int(rank2 * (p1_odds / p2_odds))  # estimación proporcional
+        elif rank2 is None:
+            rank2 = int(rank1 * (p2_odds / p1_odds))
+            
+        form1 = get_val(prof1, 'form', bm_prob_p1)  # si no hay datos, usar prob implícita
+        form2 = get_val(prof2, 'form', bm_prob_p2)
         
         # Detección de superficie por nombre del torneo (simplificado)
         surface = "hard"
-        comp_name = m.get('competition_name', '').lower()
-        if 'clay' in comp_name or 'tierra' in comp_name or 'roland' in comp_name: surface = "clay"
+        sport_title = m.get('sport_title', '').lower()
+        comp_name = m.get('competition_name', m.get('sport_title', '')).lower()
+        if 'clay' in comp_name or 'tierra' in comp_name or 'roland' in comp_name or 'french' in comp_name: surface = "clay"
         elif 'grass' in comp_name or 'hierba' in comp_name or 'wimbledon' in comp_name: surface = "grass"
         
-        eff1 = get_val(prof1, f'eff_{surface}', 0.5)
-        eff2 = get_val(prof2, f'eff_{surface}', 0.5)
+        eff1 = get_val(prof1, f'eff_{surface}', bm_prob_p1)
+        eff2 = get_val(prof2, f'eff_{surface}', bm_prob_p2)
         
         age1, age2 = get_val(prof1, 'age', 26), get_val(prof2, 'age', 26)
         ht1, ht2 = get_val(prof1, 'ht', 185), get_val(prof2, 'ht', 185)
@@ -278,8 +310,24 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'tourney_level': 2 # ATP 500 aprox
         }])
 
-        prob_p1_win = model.predict_proba(df_ml)[0][1] # p1_won = 1
-        prob_p2_win = 1 - prob_p1_win
+        ml_prob_p1 = model.predict_proba(df_ml)[0][1]  # p1_won = 1
+        ml_prob_p2 = 1 - ml_prob_p1
+        
+        # BUG FIX 3: Blend entre ML y bookmaker según disponibilidad de perfil
+        # Si ambos jugadores están en el perfil: confiar 80% en ML
+        # Si uno está: 60% ML
+        # Si ninguno: 40% ML (bookmaker tiene más info que defaults genéricos)
+        if p1_found and p2_found:
+            alpha = 0.80
+        elif p1_found or p2_found:
+            alpha = 0.60
+        else:
+            alpha = 0.40
+        
+        prob_p1_win = alpha * ml_prob_p1 + (1 - alpha) * bm_prob_p1
+        prob_p2_win = alpha * ml_prob_p2 + (1 - alpha) * bm_prob_p2
+        
+        logger.info(f"  {p1_name} vs {p2_name} | perfiles: {p1_found}/{p2_found} | ML: {ml_prob_p1:.2%} | BM: {bm_prob_p1:.2%} | Final: {prob_p1_win:.2%} | Cuotas: {p1_odds}/{p2_odds}")
         
         texto = f"\n🎾 *{p1_name} vs {p2_name}*\n"
         texto += f"🏆 {m.get('competition_name', 'Torneo')} | 🕒 {commence_time.strftime('%H:%M')}\n"
@@ -287,7 +335,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # Valor en P1
         edge_p1 = (prob_p1_win * p1_odds) - 1
-        if edge_p1 > 0.05:
+        if edge_p1 > 0.03:  # 3% edge mínimo (era 5%, demasiado estricto sin datos suficientes)
             stake = calculate_kelly(prob_p1_win, p1_odds)
             reasons = []
             if eff1 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
@@ -302,7 +350,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         # Valor en P2
         edge_p2 = (prob_p2_win * p2_odds) - 1
-        if edge_p2 > 0.05:
+        if edge_p2 > 0.03:  # 3% edge mínimo
             stake = calculate_kelly(prob_p2_win, p2_odds)
             reasons = []
             if eff2 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
@@ -322,15 +370,17 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Registrar para el resumen
             max_edge = max(edge_p1, edge_p2) * 100
             fav = p1_name if edge_p1 > edge_p2 else p2_name
-            analyzed_log.append(f"🔸 {p1_name} v {p2_name} (Mejor edge: {max_edge:.1f}% en {fav})")
+            analyzed_log.append(f"🔸 {p1_name} v {p2_name} — edge: {max_edge:.1f}% (favor: {fav})")
             
     if not found_any:
-        responses.append(f"\n❌ Ninguno de los {analyzed_count} partidos en las próximas 24h ofrece valor suficiente (+5% Edge).\n")
+        responses.append(f"\n❌ Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
+        responses.append(f"📊 *Diagnóstico*: {len(matches)} partidos totales en API | {skipped_time} fuera de 24h | {analyzed_count} analizados")
         
     if analyzed_log:
-        responses.append("\n📋 *Resumen de Análisis Interno (Top 15)*:")
-        # Mostrar solo los 15 con mejor edge para no saturar Telegram
-        for log_line in analyzed_log[:15]:
+        responses.append("\n📋 *Análisis detallado (Top 15)*:")
+        # Mostrar los 15 con mayor edge para no saturar Telegram
+        analyzed_log_sorted = sorted(analyzed_log, key=lambda x: float(x.split('edge: ')[1].split('%')[0]) if 'edge: ' in x else -999, reverse=True)
+        for log_line in analyzed_log_sorted[:15]:
             responses.append(log_line)
         if len(analyzed_log) > 15:
             responses.append(f"...y {len(analyzed_log) - 15} más.")        
