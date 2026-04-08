@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, asyncio
 print("LOG: BOOT : Bot script started at the very first line.", flush=True)
 import logging
 import threading
@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
+    await update.message.reply_text("The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real lala.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -478,21 +478,37 @@ async def train_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
         global is_training
         is_training = True
         try:
-            import asyncio
             logger.info("LOG: MLOPS : Iniciando entrenamiento forzado desde Telegram...")
             python_exe = sys.executable
             script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
             
-            # Ejecutar de forma asincrona para no bloquear el bot
-            process = await asyncio.create_subprocess_exec(python_exe, script_path)
-            await process.communicate()
+            # Ejecutar de forma asincrona capturando salida para depuracion
+            process = await asyncio.create_subprocess_exec(
+                python_exe, script_path,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+            
+            # Decodificar logs (capturamos ambos por si falla el decode de uno)
+            full_log = stdout.decode('utf-8', errors='replace')
+            error_log = stderr.decode('utf-8', errors='replace')
+            combined_log = f"{full_log}\n\n--- ERRORES / STDERR ---\n{error_log}"
             
             if process.returncode == 0:
                 logger.info("LOG: MLOPS : Recargando modelos y perfiles...")
                 load_models_and_data()
-                await update.message.reply_text("[OK] *ENTRENAMIENTO COMPLETADO*\nModelos y perfiles generados. !Ya puedes usar /valuebets! [GO]", parse_mode='Markdown')
+                await update.message.reply_text("[OK] *ENTRENAMIENTO COMPLETADO*\nModelos y perfiles generados.", parse_mode='Markdown')
             else:
-                await update.message.reply_text("[WARN] *ERROR DURANTE EL ENTRENAMIENTO*\nRevisa los logs del servidor.", parse_mode='Markdown')
+                await update.message.reply_text(f"[WARN] *ERROR DURANTE EL ENTRENAMIENTO* (Exit code: {process.returncode})", parse_mode='Markdown')
+            
+            # Enviar logs en fragmentos (max 4000 caracteres por mensaje de Telegram)
+            await update.message.reply_text("--- DETALLE DE LOGS DE ENTRENAMIENTO ---")
+            for i in range(0, len(combined_log), 4000):
+                chunk = combined_log[i:i+4000]
+                # Escapar markdown problemático en logs si es necesario, o usar bloque de codigo
+                await update.message.reply_text(f"```\n{chunk}\n```", parse_mode='Markdown')
+
         except Exception as e:
             logger.error(f"LOG: ERROR : Fallo en el entrenamiento: {e}")
             await update.message.reply_text(f"[FAIL] Error critico en entrenamiento: {e}")
