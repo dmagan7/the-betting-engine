@@ -27,17 +27,17 @@ def clean_data(df):
     if df.empty:
         return df
     
-    # Normalizar nombres de columnas a minúsculas y sin espacios ni comillas literales
+    # Normalizar nombres de columnas a minusculas y sin espacios ni comillas literales
     df.columns = [c.lower().strip().strip("'").strip('"') for c in df.columns]
     
     # Convertir fechas de formato YYYYMMDD a datetime
     if 'tourney_date' in df.columns:
         df['tourney_date'] = pd.to_datetime(df['tourney_date'], format='%Y%m%d', errors='coerce')
     
-    # Eliminar filas donde no haya IDs válidos para los jugadores
+    # Eliminar filas donde no haya IDs validos para los jugadores
     df = df.dropna(subset=['winner_id', 'loser_id'])
     
-    # Ordenar por fecha cronológicamente para evitar data leakage luego en ML
+    # Ordenar por fecha cronologicamente para evitar data leakage luego en ML
     df = df.sort_values(by='tourney_date').reset_index(drop=True)
     
     return df

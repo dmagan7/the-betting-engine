@@ -5,7 +5,7 @@ import re
 
 def calculate_rolling_stats(df):
     """
-    Calcula estadísticas rodantes (forma, wins por superficie) de manera eficiente.
+    Calcula estadisticas rodantes (forma, wins por superficie) de manera eficiente.
     """
     # Limpieza extrema de columnas
     df.columns = [c.lower().strip().strip("'").strip('"') for c in df.columns]
@@ -13,13 +13,13 @@ def calculate_rolling_stats(df):
     required = ['tourney_date', 'match_num', 'winner_id', 'loser_id', 'surface']
     missing = [c for c in required if c not in df.columns]
     if missing:
-        print(f"ERROR: Faltan columnas críticas: {missing}")
+        print(f"ERROR: Faltan columnas criticas: {missing}")
         print(f"Columnas disponibles: {df.columns.tolist()}")
         return df
 
     print(f"Procesando {len(df)} partidos...")
     
-    # Asegurar orden cronológico
+    # Asegurar orden cronologico
     df['tourney_date'] = pd.to_datetime(df['tourney_date'], errors='coerce')
     df = df.sort_values(['tourney_date', 'match_num']).reset_index(drop=True)
 
@@ -34,13 +34,13 @@ def calculate_rolling_stats(df):
 
     players_hist = pd.concat([p1, p2]).sort_values(['date', 'player_id'])
     
-    # 1. Forma (últimos 10 partidos)
+    # 1. Forma (ultimos 10 partidos)
     players_hist['form'] = players_hist.groupby('player_id')['won'].transform(lambda x: x.shift().rolling(10, min_periods=1).mean())
     
-    # 2. Victoria en superficie específica
+    # 2. Victoria en superficie especifica
     players_hist['surface_win_rate'] = players_hist.groupby(['player_id', 'surface'])['won'].transform(lambda x: x.shift().rolling(20, min_periods=1).mean())
     
-    # 3. Fatiga (días desde último partido)
+    # 3. Fatiga (dias desde ultimo partido)
     players_hist['last_match_date'] = players_hist.groupby('player_id')['date'].shift()
     players_hist['days_since_last'] = (players_hist['date'] - players_hist['last_match_date']).dt.days.fillna(30)
     
@@ -58,9 +58,9 @@ def calculate_rolling_stats(df):
     return df
 
 def create_features(df):
-    print("Extrayendo características avanzadas...")
+    print("Extrayendo caracteristicas avanzadas...")
     
-    # 1. Calcular estadísticas rodantes
+    # 1. Calcular estadisticas rodantes
     df = calculate_rolling_stats(df)
     
     np.random.seed(42)
@@ -70,7 +70,7 @@ def create_features(df):
     df_ml['tourney_date'] = df['tourney_date']
     df_ml['p1_won'] = (~swap).astype(int)
     
-    # Características de Jugador 1
+    # Caracteristicas de Jugador 1
     df_ml['p1_rank'] = np.where(swap, df['loser_rank'], df['winner_rank'])
     df_ml['p1_age'] = np.where(swap, df['loser_age'], df['winner_age'])
     df_ml['p1_ht'] = np.where(swap, df['loser_ht'], df['winner_ht'])
@@ -81,7 +81,7 @@ def create_features(df):
     df_ml['p1_surface_eff'] = np.where(swap, df['surface_win_rate_l'], df['surface_win_rate_w'])
     df_ml['p1_fatigue'] = np.where(swap, df['days_since_last_l'], df['days_since_last_w'])
 
-    # Características de Jugador 2
+    # Caracteristicas de Jugador 2
     df_ml['p2_rank'] = np.where(swap, df['winner_rank'], df['loser_rank'])
     df_ml['p2_age'] = np.where(swap, df['winner_age'], df['loser_age'])
     df_ml['p2_ht'] = np.where(swap, df['winner_ht'], df['loser_ht'])
@@ -104,8 +104,8 @@ def create_features(df):
     df_ml['best_of'] = df['best_of']
 
     # --- NUEVOS TARGETS PARA MULTI-MERCADO ---
-    # Usamos la lógica de parse_score (ya integrada en el flujo o la añadimos de nuevo)
-    # Nota: p1_won ya está arriba. Necesitamos total_games y exact_score.
+    # Usamos la logica de parse_score (ya integrada en el flujo o la anadimos de nuevo)
+    # Nota: p1_won ya esta arriba. Necesitamos total_games y exact_score.
     # Como calculate_rolling_stats devuelve el DF original 'df' con columnas extra, 
     # podemos extraer los datos de 'df'.
     
@@ -129,7 +129,7 @@ def create_features(df):
                     elif gl > gw: l_sets += 1
         if (w_games + l_games) == 0: return pd.Series([-1, -1, -1])
         
-        # p1_won_target es 1 si el p1 de la fila ML ganó
+        # p1_won_target es 1 si el p1 de la fila ML gano
         p1_sets = w_sets if p1_won == 1 else l_sets
         p2_sets = l_sets if p1_won == 1 else w_sets
         
@@ -152,7 +152,7 @@ def create_features(df):
     df['p1_won_target'] = (~swap).astype(int)
     df_ml[['exact_score', 'total_games', 'total_sets']] = df.apply(get_market_targets, axis=1)
 
-    # Limpiamos anomalías
+    # Limpiamos anomalias
     df_ml = df_ml[df_ml['exact_score'] != -1]
     df_ml = df_ml.fillna(0)
     

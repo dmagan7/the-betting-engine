@@ -24,20 +24,20 @@ def process_circuit(df, name, models_dir):
     y_score = df_bo3['exact_score']
     y_games = df_bo3['total_games']
     
-    # Split cronológico: 80% train, 20% test (nunca mezclar futuro con pasado)
+    # Split cronologico: 80% train, 20% test (nunca mezclar futuro con pasado)
     split_idx = int(len(X) * 0.8)
     X_train, X_test = X.iloc[:split_idx], X.iloc[split_idx:]
     y_win_train, y_win_test = y_win.iloc[:split_idx], y_win.iloc[split_idx:]
     yscore_train = y_score.iloc[:split_idx]
     ygames_train = y_games.iloc[:split_idx]
 
-    # --- MODELO 1: Ganador del partido (con calibración de probabilidades) ---
+    # --- MODELO 1: Ganador del partido (con calibracion de probabilidades) ---
     print("Entrenando Clasificador de Ganador (Match Winner)...")
     base_win = HistGradientBoostingClassifier(
         learning_rate=0.05,
-        max_depth=5,          # reducido de 6 → menor sobreajuste
+        max_depth=5,          # reducido de 6 -> menor sobreajuste
         max_iter=300,
-        min_samples_leaf=30,  # evita que hoja pequeña genere probs extremas
+        min_samples_leaf=30,  # evita que hoja pequena genere probs extremas
         random_state=42
     )
     base_win.fit(X_train, y_win_train)
@@ -49,14 +49,14 @@ def process_circuit(df, name, models_dir):
     model_win = CalibratedClassifierCV(base_win, cv='prefit', method='isotonic')
     model_win.fit(X_test, y_win_test)
 
-    # --- Métricas de validación ---
+    # --- Metricas de validacion ---
     probs = model_win.predict_proba(X_test)[:, 1]
     preds = (probs > 0.5).astype(int)
     brier = brier_score_loss(y_win_test, probs)
     ll = log_loss(y_win_test, probs)
     acc = accuracy_score(y_win_test, preds)
-    print(f"  Accuracy: {acc:.3f} | Brier Score: {brier:.4f} (↓ mejor) | Log-Loss: {ll:.4f}")
-    print(f"  Prob range: [{probs.min():.3f}, {probs.max():.3f}] — rango amplio = bien calibrado")
+    print(f"  Accuracy: {acc:.3f} | Brier Score: {brier:.4f} (mejor menor) | Log-Loss: {ll:.4f}")
+    print(f"  Prob range: [{probs.min():.3f}, {probs.max():.3f}] - rango amplio = bien calibrado")
     
     # Guardar modelo calibrado
     win_path = os.path.join(models_dir, f"{name.lower()}_win_model.pkl")
@@ -83,7 +83,7 @@ def process_circuit(df, name, models_dir):
     games_path = os.path.join(models_dir, f"{name.lower()}_total_games_model.pkl")
     joblib.dump(model_games, games_path)
     
-    print(f"-> Modelos de {name} guardados con éxito.\n")
+    print(f"-> Modelos de {name} guardados con exito.\n")
 
 def main():
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

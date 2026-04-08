@@ -4,7 +4,8 @@ import sys
 
 def run_command(command, cwd=None):
     print(f"-> Ejecutando: {' '.join(command)}")
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True)
+    # Forzamos encoding='utf-8' para evitar errores Unicode en servidores Windows/Azure
+    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, encoding='utf-8')
     if result.returncode != 0:
         print(f"Error ({result.returncode}): {result.stderr}")
     else:
@@ -23,7 +24,7 @@ def main():
     # Asegurarnos de que las carpetas padre existan
     os.makedirs(os.path.dirname(atp_dir), exist_ok=True)
     
-    print("=== RUTINA DE AUTOMATIZACIÓN DIARIA (MLOps) ===")
+    print("=== RUTINA DE AUTOMATIZACION DIARIA (MLOps) ===")
     print("1. Descargando / Actualizando resultados de GitHub...")
     
     # Si es la primera vez que se lanza en Docker, usar clone en lugar de pull
@@ -32,7 +33,7 @@ def main():
             print("Error fatal actualizando ATP. Abortando.")
             sys.exit(1)
     else:
-        print("Primera instalación detectada. Clonando ATP desde cero...")
+        print("Primera instalacion detectada. Clonando ATP desde cero...")
         if not run_command(["git", "clone", "--depth", "1", "https://github.com/JeffSackmann/tennis_atp.git", atp_dir]):
             print("Error fatal clonando ATP. Abortando.")
             sys.exit(1)
@@ -42,7 +43,7 @@ def main():
              print("Error fatal actualizando WTA. Abortando.")
              sys.exit(1)
     else:
-        print("Primera instalación detectada. Clonando WTA desde cero...")
+        print("Primera instalacion detectada. Clonando WTA desde cero...")
         if not run_command(["git", "clone", "--depth", "1", "https://github.com/JeffSackmann/tennis_wta.git", wta_dir]):
             print("Error fatal clonando WTA. Abortando.")
             sys.exit(1)
@@ -54,12 +55,12 @@ def main():
         print("Error en procesamiento de datos. Abortando.")
         sys.exit(1)
     
-    print("\n3. Calculando métricas Multi-Mercado y Labels...")
+    print("\n3. Calculando metricas Multi-Mercado y Labels...")
     if not run_command([python_exe, "src/feature_engineering.py"], cwd=base_dir):
-        print("Error en ingeniería de variables. Abortando.")
+        print("Error en ingenieria de variables. Abortando.")
         sys.exit(1)
         
-    print("\n4. Entrenando Modelos de Predicción Pro...")
+    print("\n4. Entrenando Modelos de Prediccion Pro...")
     if not run_command([python_exe, "src/train_model.py"], cwd=base_dir):
         print("Error entrenando modelos. Abortando.")
         sys.exit(1)
@@ -67,9 +68,9 @@ def main():
     print("\n5. Actualizando perfiles Pro de jugadores para el Bot...")
     if not run_command([python_exe, "src/generate_player_profiles.py"], cwd=base_dir):
         print("Error generando perfiles de jugadores.")
-        # No salimos con error aquí para que los modelos al menos se guarden
+        # No salimos con error aqui para que los modelos al menos se guarden
     
-    print("\n✅ Actualización Pro Diaria finalizada exitosamente.")
+    print("\nActualizacion Pro Diaria finalizada exitosamente.")
 
 if __name__ == "__main__":
     main()

@@ -4,7 +4,7 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# 1. Configuración de logging INMEDIATA
+# 1. Configuracion de logging INMEDIATA
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
@@ -13,7 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 2. Servidor de Salud ULTRA-RÁPIDO para Azure (Antes que pandas/numpy)
+# 2. Servidor de Salud ULTRA-RAPIDO para Azure (Antes que pandas/numpy)
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/':
@@ -42,13 +42,13 @@ def run_health_server():
         threading.Thread(target=heartbeat, daemon=True).start()
         server.serve_forever()
     except Exception as e:
-        logger.error(f"LOG: ERROR : Fallo crítico en Servidor de Salud: {e}")
+        logger.error(f"LOG: ERROR : Fallo critico en Servidor de Salud: {e}")
 
 # LANZAR SALUD YA MISMO (Hilo no-bloqueante)
 logger.info("LOG: STARTUP : Iniciando health check server...")
 threading.Thread(target=run_health_server, daemon=True).start()
 
-logger.info("LOG: STARTUP : Cargando librerías pesadas (pandas, sklearn, etc)...")
+logger.info("LOG: STARTUP : Cargando librerias pesadas (pandas, sklearn, etc)...")
 
 try:
     import joblib
@@ -65,10 +65,10 @@ try:
 
     load_dotenv()
     os.environ['SSL_CERT_FILE'] = certifi.where()
-    logger.info("LOG: STARTUP : Librerías cargadas y SSL_CERT_FILE configurado")
+    logger.info("LOG: STARTUP : Librerias cargadas y SSL_CERT_FILE configurado")
 except Exception as e:
     logger.error(f"LOG: FATAL : Error durante la carga de dependencias: {e}", exc_info=True)
-    # No salimos todavía para que el health server siga vivo y podamos ver el log
+    # No salimos todavia para que el health server siga vivo y podamos ver el log
     import time
     time.sleep(300) 
     sys.exit(1)
@@ -95,14 +95,14 @@ def load_models_and_data():
         logger.info(f"Probando ATP Win en: {atp_win_path}")
         if os.path.exists(atp_win_path):
             atp_win_model = joblib.load(atp_win_path)
-            logger.info("Modelo ATP Win Pro cargado con éxito.")
+            logger.info("Modelo ATP Win Pro cargado con exito.")
         else:
             logger.warning(f"ADVERTENCIA: Archivo ATP Win NO ENCONTRADO en {atp_win_path}")
 
         logger.info(f"Probando WTA Win en: {wta_win_path}")
         if os.path.exists(wta_win_path):
             wta_win_model = joblib.load(wta_win_path)
-            logger.info("Modelo WTA Win Pro cargado con éxito.")
+            logger.info("Modelo WTA Win Pro cargado con exito.")
         else:
             logger.warning(f"ADVERTENCIA: Archivo WTA Win NO ENCONTRADO en {wta_win_path}")
             
@@ -116,7 +116,7 @@ def load_models_and_data():
             logger.warning(f"ADVERTENCIA: player_profiles.csv NO ENCONTRADO en {profiles_path}")
             
     except Exception as e:
-        logger.error(f"LOG: IA : Error crítico cargando recursos: {e}", exc_info=True)
+        logger.error(f"LOG: IA : Error critico cargando recursos: {e}", exc_info=True)
 
 load_models_and_data()
 
@@ -129,11 +129,11 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
+    await update.message.reply_text("The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
-    print("[CRON JOB] Iniciando rutina Pro 24H de automatización MLOps...")
+    print("[CRON JOB] Iniciando rutina Pro 24H de automatizacion MLOps...")
     python_exe = sys.executable
     script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
     subprocess.run([python_exe, script_path])
@@ -150,13 +150,13 @@ async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
         profiles_path = os.path.join(PROCESSED_DIR, 'player_profiles.csv')
         if os.path.exists(profiles_path): player_profiles = pd.read_csv(profiles_path)
         
-        print("[CRON JOB] Modelos Pro y Perfiles re-cargados en caliente con éxito.")
+        print("[CRON JOB] Modelos Pro y Perfiles re-cargados en caliente con exito.")
     except Exception as e:
         print(f"[CRON JOB] Error recargando recursos Pro: {e}")
     print("--------------------------------------------------")
 
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🔎 Conectando de verdad con API REST Bet365 para bajar partidos hoy...")
+    await update.message.reply_text("[SEARCH] Conectando de verdad con API REST Bet365 para bajar partidos hoy...")
     ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "547f9d4f748137ff6adbf7fe48baa1a7")
     # 1. Obtener los deportes activos
     sports_url = "https://api.the-odds-api.com/v4/sports"
@@ -170,18 +170,18 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"Deportes de tenis encontrados: {len(tennis_sports)}")
     except Exception as e:
         logger.error(f"Error conectando a The Odds API (Sports): {e}")
-        await update.message.reply_text(f"❌ Error conectando servidor API REST para obtener deportes: {e}")
+        await update.message.reply_text(f"[FAIL] Error conectando servidor API REST para obtener deportes: {e}")
         return
 
     if not tennis_sports:
-        await update.message.reply_text("❌ No hay torneos de tenis activos en The Odds API actualmente.")
+        await update.message.reply_text("[FAIL] No hay torneos de tenis activos en The Odds API actualmente.")
         return
 
     matches = []
     # 2. Descargar cuotas para cada torneo de tenis activo
-    # NO filtramos por bookmaker=bet365 porque si Bet365 no tiene el mercado abierto aún
-    # devuelve la lista vacía y saltamos todos los partidos. Cogemos todas las casas EU,
-    # preferimos Bet365 pero usamos la mejor disponible si no está.
+    # NO filtramos por bookmaker=bet365 porque si Bet365 no tiene el mercado abierto aun
+    # devuelve la lista vacia y saltamos todos los partidos. Cogemos todas las casas EU,
+    # preferimos Bet365 pero usamos la mejor disponible si no esta.
     for sport_key in tennis_sports:
         odds_url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
         params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h"}
@@ -196,19 +196,19 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
     if not matches:
-        await update.message.reply_text("❌ No hay partidos en la base de datos oficial de The Odds API actualmente.")
+        await update.message.reply_text("[FAIL] No hay partidos en la base de datos oficial de The Odds API actualmente.")
         return
 
-    # Verificación de modelos antes de procesar
+    # Verificacion de modelos antes de procesar
     if atp_win_model is None and wta_win_model is None:
-        logger.error("Los modelos de IA no están cargados. Abortando scan.")
-        await update.message.reply_text("⚠️ ERROR: Los modelos Pro no están cargados. El sistema requiere entrenamiento.")
+        logger.error("Los modelos de IA no estan cargados. Abortando scan.")
+        await update.message.reply_text("[WARN] ERROR: Los modelos Pro no estan cargados. El sistema requiere entrenamiento.")
         return
 
-    responses = ["💰 *Escaneo Pro — Mejores Cuotas EU (Próximas 24h)* 💰\n"]
+    responses = ["[$$] *Escaneo Pro - Mejores Cuotas EU (Proximas 24h)* [$$]\n"]
     found_any = False
     
-    # Filtrar partidos por tiempo (Próximas 24 horas)
+    # Filtrar partidos por tiempo (Proximas 24 horas)
     now = datetime.datetime.now(datetime.timezone.utc)
     twentyfour_hours_later = now + datetime.timedelta(hours=24)
     
@@ -224,7 +224,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     for m in matches:
         # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
-        # que no se pueden comparar con now (tz-aware), saltándose todos los partidos silenciosamente
+        # que no se pueden comparar con now (tz-aware), saltandose todos los partidos silenciosamente
         commence_time = pd.to_datetime(m['commence_time'], utc=True)
         if commence_time > twentyfour_hours_later:
             skipped_time += 1
@@ -234,7 +234,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         bookmakers_list = m.get('bookmakers', [])
         if not bookmakers_list:
             skipped_no_bm += 1
-            skip_details.append(f"  ⚫ {m.get('home_team','?')} vs {m.get('away_team','?')} — sin cuotas en ninguna casa EU")
+            skip_details.append(f"  * {m.get('home_team','?')} vs {m.get('away_team','?')} - sin cuotas en ninguna casa EU")
             continue
 
         # Preferir Bet365, si no la primera disponible
@@ -248,7 +248,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if model is None:
             skipped_no_model += 1
-            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — modelo {sport_key} no entrenado")
+            skip_details.append(f"  * {p1_name} vs {p2_name} - modelo {sport_key} no entrenado")
             logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
             continue
 
@@ -261,7 +261,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if p1_odds == 0 or p2_odds == 0:
             skipped_no_odds += 1
-            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — sin cuota H2H en {bm_name}")
+            skip_details.append(f"  * {p1_name} vs {p2_name} - sin cuota H2H en {bm_name}")
             continue
 
         # LOOKUP JUGADORES
@@ -276,15 +276,15 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             val = p[col].iloc[0]
             return default if pd.isna(val) else val
 
-        # Probabilidad implícita del bookmaker (sin margen) como prior
-        # BUG FIX 2: Cuando los jugadores no están en perfiles, los defaults idénticos
-        # hacen que el modelo prediga exactamente 50% para ambos → nunca hay edge.
-        # Usamos la prob implícita del bookmaker como punto de partida más realista.
+        # Probabilidad implicita del bookmaker (sin margen) como prior
+        # BUG FIX 2: Cuando los jugadores no estan en perfiles, los defaults identicos
+        # hacen que el modelo prediga exactamente 50% para ambos -> nunca hay edge.
+        # Usamos la prob implicita del bookmaker como punto de partida mas realista.
         total_implied = (1/p1_odds) + (1/p2_odds)
         bm_prob_p1 = (1/p1_odds) / total_implied  # prob normalizada sin margen
         bm_prob_p2 = (1/p2_odds) / total_implied
 
-        # Extraer características
+        # Extraer caracteristicas
         rank1 = get_val(prof1, 'rank', None)
         rank2 = get_val(prof2, 'rank', None)
         
@@ -293,14 +293,14 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if rank1 is None and rank2 is None:
             rank1, rank2 = 100, 100  # sin diferencia
         elif rank1 is None:
-            rank1 = int(rank2 * (p1_odds / p2_odds))  # estimación proporcional
+            rank1 = int(rank2 * (p1_odds / p2_odds))  # estimacion proporcional
         elif rank2 is None:
             rank2 = int(rank1 * (p2_odds / p1_odds))
             
-        form1 = get_val(prof1, 'form', bm_prob_p1)  # si no hay datos, usar prob implícita
+        form1 = get_val(prof1, 'form', bm_prob_p1)  # si no hay datos, usar prob implicita
         form2 = get_val(prof2, 'form', bm_prob_p2)
         
-        # Detección de superficie por nombre del torneo (simplificado)
+        # Deteccion de superficie por nombre del torneo (simplificado)
         surface = "hard"
         sport_title = m.get('sport_title', '').lower()
         comp_name = m.get('competition_name', m.get('sport_title', '')).lower()
@@ -315,7 +315,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         hand1 = 1 if get_val(prof1, 'hand', 'R') == 'L' else 0
         hand2 = 1 if get_val(prof2, 'hand', 'R') == 'L' else 0
         
-        # Dataset para predicción
+        # Dataset para prediccion
         df_ml = pd.DataFrame([{
             'rank_diff': rank2 - rank1,
             'age_diff': age1 - age2,
@@ -333,7 +333,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ml_prob_p1 = model.predict_proba(df_ml)[0][1]  # p1_won = 1
         ml_prob_p2 = 1 - ml_prob_p1
         
-        # Blend entre ML y bookmaker según disponibilidad de perfil
+        # Blend entre ML y bookmaker segun disponibilidad de perfil
         if p1_found and p2_found:
             alpha = 0.80
         elif p1_found or p2_found:
@@ -343,7 +343,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         # SANITY CHECK: si el modelo diverge >2.5x de lo que implica el bookmaker
         # (ej: nosotros damos 14% a alguien que Pinnacle pone al 5%), reducimos alpha.
-        # Pinnacle es la casa más afilada del mundo — si discrepamos tanto, probablemente
+        # Pinnacle es la casa mas afilada del mundo - si discrepamos tanto, probablemente
         # es un error del modelo (ranking/perfil desactualizado), no valor real.
         ratio_p1 = ml_prob_p1 / bm_prob_p1 if bm_prob_p1 > 0 else 1
         ratio_p2 = ml_prob_p2 / bm_prob_p2 if bm_prob_p2 > 0 else 1
@@ -360,12 +360,12 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         texto += f"\U0001f3c6 {m.get('sport_title', 'Torneo')} | \U0001f552 {commence_time.strftime('%H:%M')} | \U0001f4cc {bm_name}\n"
         bets_found = False
         
-        # Umbral dinámico: cuanto mayor la cuota, mayor la exigencia de edge.
-        # Con cuotas altas el modelo comete más errores de calibración, por eso
-        # pedimos más margen de seguridad. Valores empíricos de apuestas profesionales:
-        #  - Favorito (cuota ≤2): basta con 3% de edge real
+        # Umbral dinamico: cuanto mayor la cuota, mayor la exigencia de edge.
+        # Con cuotas altas el modelo comete mas errores de calibracion, por eso
+        # pedimos mas margen de seguridad. Valores empiricos de apuestas profesionales:
+        #  - Favorito (cuota <=2): basta con 3% de edge real
         #  - Normal (cuota 2-5): exigimos 5%
-        #  - Largo plazo (cuota >5): exigimos 8% — cada punto de prob vale mucho
+        #  - Largo plazo (cuota >5): exigimos 8% - cada punto de prob vale mucho
         def min_edge(odds):
             if odds <= 2.0: return 0.03
             elif odds <= 5.0: return 0.05
@@ -379,7 +379,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if eff1 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
             if form1 > 0.75: reasons.append("Racha")
             if rank1 < rank2 - 60: reasons.append("Mejor Rank")
-            edge_display = min(edge_p1 * 100, 50.0)  # cap visual a 50% — >50% = modelo poco fiable
+            edge_display = min(edge_p1 * 100, 50.0)  # cap visual a 50% - >50% = modelo poco fiable
             
             texto += f"\u2705 VALOR: *{p1_name}* @{p1_odds}\n"
             texto += f"   \u2514 Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%{'\u26a0\ufe0f' if edge_p1>0.5 else ''}\n"
@@ -410,69 +410,69 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Registrar para el resumen
             max_edge = max(edge_p1, edge_p2) * 100
             fav = p1_name if edge_p1 > edge_p2 else p2_name
-            analyzed_log.append(f"🔸 {p1_name} v {p2_name} — edge: {max_edge:.1f}% (favor: {fav})")
+            analyzed_log.append(f"* {p1_name} v {p2_name} - edge: {max_edge:.1f}% (favor: {fav})")
             
     if not found_any:
-        responses.append(f"\n❌ Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
+        responses.append(f"\n[FAIL] Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
     
-    # Bloque de diagnóstico siempre visible
-    diag = f"\n📊 *Diagnóstico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
-    diag += f"  └ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
-    diag += f"  └ Con edge calculado: {len(analyzed_log)}"
+    # Bloque de diagnostico siempre visible
+    diag = f"\n[STATS] *Diagnostico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
+    diag += f"  |_ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
+    diag += f"  |_ Con edge calculado: {len(analyzed_log)}"
     responses.append(diag)
     
     if skip_details:
-        responses.append("\n🔍 *Detalle de partidos saltados*:")
+        responses.append("\n[SEARCH] *Detalle de partidos saltados*:")
         for d in skip_details[:10]:
             responses.append(d)
         if len(skip_details) > 10:
-            responses.append(f"...y {len(skip_details) - 10} más.")        
+            responses.append(f"...y {len(skip_details) - 10} mas.")        
     if analyzed_log:
-        responses.append("\n📋 *Análisis detallado (Top 15)*:")
+        responses.append("\n[NOTES] *Analisis detallado (Top 15)*:")
         # Mostrar los 15 con mayor edge para no saturar Telegram
         analyzed_log_sorted = sorted(analyzed_log, key=lambda x: float(x.split('edge: ')[1].split('%')[0]) if 'edge: ' in x else -999, reverse=True)
         for log_line in analyzed_log_sorted[:15]:
             responses.append(log_line)
         if len(analyzed_log) > 15:
-            responses.append(f"...y {len(analyzed_log) - 15} más.")
+            responses.append(f"...y {len(analyzed_log) - 15} mas.")
     msg = "\n".join(responses)
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
 
 async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra información de diagnóstico del servidor."""
+    """Muestra informacion de diagnostico del servidor."""
     try:
-        text = "🔍 DIAGNÓSTICO DEL SISTEMA 🔍\n\n"
-        text += f"📅 Fecha server: {datetime.datetime.now()}\n"
-        text += f"📂 Directorio actual: {os.getcwd()}\n"
-        text += f"📂 MODELS_DIR: {MODELS_DIR}\n"
+        text = "[SEARCH] DIAGNOSTICO DEL SISTEMA [SEARCH]\n\n"
+        text += f"[DATE] Fecha server: {datetime.datetime.now()}\n"
+        text += f"[DIR] Directorio actual: {os.getcwd()}\n"
+        text += f"[DIR] MODELS_DIR: {MODELS_DIR}\n"
         
         # Listar archivos en models
         if os.path.exists(MODELS_DIR):
             files = os.listdir(MODELS_DIR)
-            text += f"📄 Archivos en models: {', '.join(files) if files else 'VACÍO'}\n"
+            text += f"[FILE] Archivos en models: {', '.join(files) if files else 'VACIO'}\n"
         else:
-            text += "❌ MODELS_DIR no existe.\n"
+            text += "[FAIL] MODELS_DIR no existe.\n"
             
-        text += f"\n🤖 ATP Model: {'Cargado ✅' if atp_win_model else 'FALTA ❌'}\n"
-        text += f"🤖 WTA Model: {'Cargado ✅' if wta_win_model else 'FALTA ❌'}\n"
-        text += f"📈 Perfiles: {len(player_profiles)} cargados\n"
+        text += f"\n[AI] ATP Model: {'Cargado [OK]' if atp_win_model else 'FALTA [FAIL]'}\n"
+        text += f"[AI] WTA Model: {'Cargado [OK]' if wta_win_model else 'FALTA [FAIL]'}\n"
+        text += f"[UP] Perfiles: {len(player_profiles)} cargados\n"
         
         # No usar Markdown para evitar errores de parseo con caracteres especiales
         await update.message.reply_text(text)
     except Exception as e:
         logger.error(f"Error en debug_info: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error interno en debug: {e}")
+        await update.message.reply_text(f"[FAIL] Error interno en debug: {e}")
 
 is_training = False
 
 async def train_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global is_training
     if is_training:
-        await update.message.reply_text("⚠️ El proceso de entrenamiento ya está en curso. Por favor, espera.")
+        await update.message.reply_text("[WARN] El proceso de entrenamiento ya esta en curso. Por favor, espera.")
         return
         
-    await update.message.reply_text("⏳ Iniciando entrenamiento y automatización MLOps en segundo plano. Esto tardará unos minutos...")
+    await update.message.reply_text("[WAIT] Iniciando entrenamiento y automatizacion MLOps en segundo plano. Esto tardara unos minutos...")
     
     async def run_training_bg():
         global is_training
@@ -483,23 +483,23 @@ async def train_models(update: Update, context: ContextTypes.DEFAULT_TYPE):
             python_exe = sys.executable
             script_path = os.path.join(os.path.dirname(__file__), 'daily_update.py')
             
-            # Ejecutar de forma asíncrona para no bloquear el bot
+            # Ejecutar de forma asincrona para no bloquear el bot
             process = await asyncio.create_subprocess_exec(python_exe, script_path)
             await process.communicate()
             
             if process.returncode == 0:
                 logger.info("LOG: MLOPS : Recargando modelos y perfiles...")
                 load_models_and_data()
-                await update.message.reply_text("✅ *ENTRENAMIENTO COMPLETADO*\nModelos y perfiles generados. ¡Ya puedes usar /valuebets! 🚀", parse_mode='Markdown')
+                await update.message.reply_text("[OK] *ENTRENAMIENTO COMPLETADO*\nModelos y perfiles generados. !Ya puedes usar /valuebets! [GO]", parse_mode='Markdown')
             else:
-                await update.message.reply_text("⚠️ *ERROR DURANTE EL ENTRENAMIENTO*\nRevisa los logs del servidor.", parse_mode='Markdown')
+                await update.message.reply_text("[WARN] *ERROR DURANTE EL ENTRENAMIENTO*\nRevisa los logs del servidor.", parse_mode='Markdown')
         except Exception as e:
             logger.error(f"LOG: ERROR : Fallo en el entrenamiento: {e}")
-            await update.message.reply_text(f"❌ Error crítico en entrenamiento: {e}")
+            await update.message.reply_text(f"[FAIL] Error critico en entrenamiento: {e}")
         finally:
             is_training = False
 
-    # Ejecutar tarea asíncrona en segundo plano nativamente
+    # Ejecutar tarea asincrona en segundo plano nativamente
     import asyncio
     asyncio.create_task(run_training_bg())
 
@@ -511,7 +511,7 @@ def main():
         
         if not token or token.startswith("tu_token"):
             logger.error("LOG: FATAL : TELEGRAM_BOT_TOKEN no configurado en Azure App Settings.")
-            logger.error("LOG: FATAL : El contenedor se cerrará ahora para evitar bucles de error.")
+            logger.error("LOG: FATAL : El contenedor se cerrara ahora para evitar bucles de error.")
             return
         
         logger.info(f"LOG: STARTUP : Token validado (hash: {hash(token)})")
@@ -534,7 +534,7 @@ def main():
         while True:
             try:
                 application.run_polling(allowed_updates=Update.ALL_TYPES)
-                break  # Si termina limpio (ej. señal del sistema), salimos
+                break  # Si termina limpio (ej. senal del sistema), salimos
             except Conflict:
                 logger.warning("LOG: CONFLICT : Otra instancia de polling activa (posible solapamiento de Azure). Reintentando en 15s...")
                 time.sleep(15)

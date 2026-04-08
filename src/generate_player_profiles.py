@@ -3,7 +3,7 @@ import pandas as pd
 
 def get_latest_stats(df):
     """
-    Calcula estadísticas avanzadas y se queda con el estado más reciente de cada jugador.
+    Calcula estadisticas avanzadas y se queda con el estado mas reciente de cada jugador.
     """
     # Limpieza extrema de columnas
     df.columns = [c.lower().strip().strip("'").strip('"') for c in df.columns]
@@ -21,17 +21,17 @@ def get_latest_stats(df):
 
     all_players = pd.concat([p1, p2]).sort_values(['date', 'id'])
     
-    # FORMA: Últimos 10 partidos
+    # FORMA: Ultimos 10 partidos
     all_players['form'] = all_players.groupby('id')['won'].transform(lambda x: x.rolling(10, min_periods=1).mean())
     
     # EFECTIVIDAD POR SUPERFICIE (Hard, Clay, Grass)
     for s in ['Hard', 'Clay', 'Grass']:
         mask = all_players['surface'] == s
         all_players.loc[mask, f'eff_{s.lower()}'] = all_players[mask].groupby('id')['won'].transform(lambda x: x.rolling(20, min_periods=1).mean())
-        # Forward fill para que el jugador tenga su efectividad en esa superficie aunque el último partido fuera en otra
+        # Forward fill para que el jugador tenga su efectividad en esa superficie aunque el ultimo partido fuera en otra
         all_players[f'eff_{s.lower()}'] = all_players.groupby('id')[f'eff_{s.lower()}'].ffill().fillna(0.5)
 
-    # Quedarse con el registro más reciente por jugador
+    # Quedarse con el registro mas reciente por jugador
     latest = all_players.sort_values('date', ascending=False).drop_duplicates('name')
     
     return latest[['name', 'id', 'rank', 'age', 'ht', 'hand', 'form', 'eff_hard', 'eff_clay', 'eff_grass', 'date']]
@@ -61,7 +61,7 @@ def generate_profiles():
     
     out_path = os.path.join(processed_dir, "player_profiles.csv")
     final_profiles.to_csv(out_path, index=False)
-    print(f"Perfiles Pro de {len(final_profiles)} jugadores guardados con éxito.")
+    print(f"Perfiles Pro de {len(final_profiles)} jugadores guardados con exito.")
 
 if __name__ == "__main__":
     generate_profiles()
