@@ -232,222 +232,197 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     skipped_no_odds = 0
     skip_details = []
     
-    for m in matches:
-        # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
-        # que no se pueden comparar con now (tz-aware), saltandose todos los partidos silenciosamente
-        commence_time = pd.to_datetime(m['commence_time'], utc=True)
-        if commence_time > twentyfour_hours_later:
-            skipped_time += 1
-            continue
-            
-        analyzed_count += 1
-        bookmakers_list = m.get('bookmakers', [])
-        if not bookmakers_list:
-            skipped_no_bm += 1
-            skip_details.append(f"  * {m.get('home_team','?')} vs {m.get('away_team','?')} - sin cuotas en ninguna casa EU")
-            continue
+    try:
+        for m in matches:
+            # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
+            # que no se pueden comparar con now (tz-aware), saltandose todos los partidos silenciosamente
+            commence_time = pd.to_datetime(m['commence_time'], utc=True)
+            if commence_time > twentyfour_hours_later:
+                skipped_time += 1
+                continue
+                
+            analyzed_count += 1
+            bookmakers_list = m.get('bookmakers', [])
+            if not bookmakers_list:
+                skipped_no_bm += 1
+                skip_details.append(f"  * {m.get('home_team','?')} vs {m.get('away_team','?')} - sin cuotas en ninguna casa EU")
+                continue
 
-        # Preferir Bet365, si no la primera disponible
-        bm = next((b for b in bookmakers_list if b['key'] == 'bet365'), bookmakers_list[0])
-        bm_name = bm.get('title', bm['key'])
-        
-        p1_name = m['home_team']
-        p2_name = m['away_team']
-        sport_key = m['sport_key'] # tennis_atp or tennis_wta
-        model = atp_win_model if 'atp' in sport_key else wta_win_model
-        
-        if model is None:
-            skipped_no_model += 1
-            skip_details.append(f"  * {p1_name} vs {p2_name} - modelo {sport_key} no entrenado")
-            logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
-            continue
-
-        p1_odds, p2_odds = 0, 0
-        for market in bm['markets']:
-            if market['key'] == 'h2h':
-                for out in market['outcomes']:
-                    if out['name'] == p1_name: p1_odds = out['price']
-                    else: p2_odds = out['price']
-        
-        if p1_odds == 0 or p2_odds == 0:
-            skipped_no_odds += 1
-            skip_details.append(f"  * {p1_name} vs {p2_name} - sin cuota H2H en {bm_name}")
-            continue
-
-        # LOOKUP JUGADORES
-        prof1 = player_profiles[player_profiles['name'] == p1_name]
-        prof2 = player_profiles[player_profiles['name'] == p2_name]
-        
-        p1_found = not prof1.empty
-        p2_found = not prof2.empty
-        
-        def get_val(p, col, default):
-            if p.empty: return default
-            val = p[col].iloc[0]
-            return default if pd.isna(val) else val
-
-        # Probabilidad implicita del bookmaker (sin margen) como prior
-        # BUG FIX 2: Cuando los jugadores no estan en perfiles, los defaults identicos
-        # hacen que el modelo prediga exactamente 50% para ambos -> nunca hay edge.
-        # Usamos la prob implicita del bookmaker como punto de partida mas realista.
-        total_implied = (1/p1_odds) + (1/p2_odds)
-        bm_prob_p1 = (1/p1_odds) / total_implied  # prob normalizada sin margen
-        bm_prob_p2 = (1/p2_odds) / total_implied
-
-        # Extraer caracteristicas
-        rank1 = get_val(prof1, 'rank', None)
-        rank2 = get_val(prof2, 'rank', None)
-        
-        # Si falta el ranking, inferirlo desde las cuotas del bookmaker
-        # Un favorito con cuota 1.5 implica aprox ranking relativo mejor
-        if rank1 is None and rank2 is None:
-            rank1, rank2 = 100, 100  # sin diferencia
-        elif rank1 is None:
-            rank1 = int(rank2 * (p1_odds / p2_odds))  # estimacion proporcional
-        elif rank2 is None:
-            rank2 = int(rank1 * (p2_odds / p1_odds))
+            # Preferir Bet365, si no la primera disponible
+            bm = next((b for b in bookmakers_list if b['key'] == 'bet365'), bookmakers_list[0])
+            bm_name = bm.get('title', bm['key'])
             
-        form1 = get_val(prof1, 'form', bm_prob_p1)  # si no hay datos, usar prob implicita
-        form2 = get_val(prof2, 'form', bm_prob_p2)
-        
-        # Deteccion de superficie por nombre del torneo (simplificado)
-        surface = "hard"
-        sport_title = m.get('sport_title', '').lower()
-        comp_name = m.get('competition_name', m.get('sport_title', '')).lower()
-        if 'clay' in comp_name or 'tierra' in comp_name or 'roland' in comp_name or 'french' in comp_name: surface = "clay"
-        elif 'grass' in comp_name or 'hierba' in comp_name or 'wimbledon' in comp_name: surface = "grass"
-        
-        eff1 = get_val(prof1, f'eff_{surface}', bm_prob_p1)
-        eff2 = get_val(prof2, f'eff_{surface}', bm_prob_p2)
-        
-        age1, age2 = get_val(prof1, 'age', 26), get_val(prof2, 'age', 26)
-        ht1, ht2 = get_val(prof1, 'ht', 185), get_val(prof2, 'ht', 185)
-        hand1 = 1 if get_val(prof1, 'hand', 'R') == 'L' else 0
-        hand2 = 1 if get_val(prof2, 'hand', 'R') == 'L' else 0
-        
-        # Dataset para prediccion
-        df_ml = pd.DataFrame([{
-            'rank_diff': rank2 - rank1,
-            'age_diff': age1 - age2,
-            'ht_diff': ht1 - ht2,
-            'form_diff': form1 - form2,
-            'surface_diff': eff1 - eff2,
-            'p1_rank': rank1, 'p2_rank': rank2,
-            'p1_form': form1, 'p2_form': form2,
-            'p1_surface_eff': eff1, 'p2_surface_eff': eff2,
-            'p1_fatigue': 30, 'p2_fatigue': 30,
-            'p1_hand': hand1, 'p2_hand': hand2,
-            'tourney_level': 2 # ATP 500 aprox
-        }])
+            p1_name = m['home_team']
+            p2_name = m['away_team']
+            sport_key = m['sport_key'] # tennis_atp or tennis_wta
+            model = atp_win_model if 'atp' in sport_key else wta_win_model
+            
+            if model is None:
+                skipped_no_model += 1
+                skip_details.append(f"  * {p1_name} vs {p2_name} - modelo {sport_key} no entrenado")
+                logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
+                continue
 
-        ml_prob_p1 = model.predict_proba(df_ml)[0][1]  # p1_won = 1
-        ml_prob_p2 = 1 - ml_prob_p1
-        
-        # Blend entre ML y bookmaker segun disponibilidad de perfil
-        if p1_found and p2_found:
-            alpha = 0.80
-        elif p1_found or p2_found:
-            alpha = 0.60
-        else:
-            alpha = 0.40
-        
-        # SANITY CHECK: si el modelo diverge >2.5x de lo que implica el bookmaker
-        # (ej: nosotros damos 14% a alguien que Pinnacle pone al 5%), reducimos alpha.
-        # Pinnacle es la casa mas afilada del mundo - si discrepamos tanto, probablemente
-        # es un error del modelo (ranking/perfil desactualizado), no valor real.
-        ratio_p1 = ml_prob_p1 / bm_prob_p1 if bm_prob_p1 > 0 else 1
-        ratio_p2 = ml_prob_p2 / bm_prob_p2 if bm_prob_p2 > 0 else 1
-        if max(ratio_p1, ratio_p2) > 2.5:
-            alpha = min(alpha, 0.35)  # cortar confianza en ML si diverge demasiado
-        
-        prob_p1_win = alpha * ml_prob_p1 + (1 - alpha) * bm_prob_p1
-        prob_p2_win = alpha * ml_prob_p2 + (1 - alpha) * bm_prob_p2
-        
-        logger.info(f"  {p1_name} vs {p2_name} | perfiles: {p1_found}/{p2_found} | ML: {ml_prob_p1:.2%} | BM: {bm_prob_p1:.2%} | Final: {prob_p1_win:.2%} | ratio: {max(ratio_p1,ratio_p2):.1f}x | alpha: {alpha}")
+            p1_odds, p2_odds = 0, 0
+            for market in bm['markets']:
+                if market['key'] == 'h2h':
+                    for out in market['outcomes']:
+                        if out['name'] == p1_name: p1_odds = out['price']
+                        else: p2_odds = out['price']
+            
+            if p1_odds == 0 or p2_odds == 0:
+                skipped_no_odds += 1
+                skip_details.append(f"  * {p1_name} vs {p2_name} - sin cuota H2H en {bm_name}")
+                continue
 
+            # LOOKUP JUGADORES
+            prof1 = player_profiles[player_profiles['name'] == p1_name]
+            prof2 = player_profiles[player_profiles['name'] == p2_name]
+            
+            p1_found = not prof1.empty
+            p2_found = not prof2.empty
+            
+            def get_val(p, col, default):
+                if p.empty: return default
+                if col not in p.columns: return default
+                val = p[col].iloc[0]
+                return default if pd.isna(val) else val
+
+            # Probabilidad implicita del bookmaker (sin margen) como prior
+            total_implied = (1/p1_odds) + (1/p2_odds)
+            bm_prob_p1 = (1/p1_odds) / total_implied  # prob normalizada sin margen
+            bm_prob_p2 = (1/p2_odds) / total_implied
+
+            # Extraer caracteristicas
+            rank1 = get_val(prof1, 'rank', None)
+            rank2 = get_val(prof2, 'rank', None)
+            
+            if rank1 is None and rank2 is None:
+                rank1, rank2 = 100, 100
+            elif rank1 is None:
+                rank1 = int(rank2 * (p1_odds / p2_odds))
+            elif rank2 is None:
+                rank2 = int(rank1 * (p2_odds / p1_odds))
+                
+            form1 = get_val(prof1, 'form', bm_prob_p1)
+            form2 = get_val(prof2, 'form', bm_prob_p2)
+            
+            # Deteccion de superficie
+            surface = "hard"
+            comp_name = m.get('competition_name', m.get('sport_title', '')).lower()
+            if any(x in comp_name for x in ['clay', 'tierra', 'roland', 'french']): surface = "clay"
+            elif any(x in comp_name for x in ['grass', 'hierba', 'wimbledon']): surface = "grass"
+            
+            eff1 = get_val(prof1, f'eff_{surface}', bm_prob_p1)
+            eff2 = get_val(prof2, f'eff_{surface}', bm_prob_p2)
+            
+            age1, age2 = get_val(prof1, 'age', 26), get_val(prof2, 'age', 26)
+            ht1, ht2 = get_val(prof1, 'ht', 185), get_val(prof2, 'ht', 185)
+            hand1 = 1 if get_val(prof1, 'hand', 'R') == 'L' else 0
+            hand2 = 1 if get_val(prof2, 'hand', 'R') == 'L' else 0
+            
+            # Dataset para prediccion
+            df_ml = pd.DataFrame([{
+                'rank_diff': rank2 - rank1,
+                'age_diff': age1 - age2,
+                'ht_diff': ht1 - ht2,
+                'form_diff': form1 - form2,
+                'surface_diff': eff1 - eff2,
+                'p1_rank': rank1, 'p2_rank': rank2,
+                'p1_form': form1, 'p2_form': form2,
+                'p1_surface_eff': eff1, 'p2_surface_eff': eff2,
+                'p1_fatigue': 30, 'p2_fatigue': 30,
+                'p1_hand': hand1, 'p2_hand': hand2,
+                'tourney_level': 2
+            }])
+
+            ml_prob_p1 = model.predict_proba(df_ml)[0][1]
+            ml_prob_p2 = 1 - ml_prob_p1
+            
+            if p1_found and p2_found: alpha = 0.80
+            elif p1_found or p2_found: alpha = 0.60
+            else: alpha = 0.40
+            
+            ratio_p1 = ml_prob_p1 / bm_prob_p1 if bm_prob_p1 > 0 else 1
+            ratio_p2 = ml_prob_p2 / bm_prob_p2 if bm_prob_p2 > 0 else 1
+            if max(ratio_p1, ratio_p2) > 2.5:
+                alpha = min(alpha, 0.35)
+            
+            prob_p1_win = alpha * ml_prob_p1 + (1 - alpha) * bm_prob_p1
+            prob_p2_win = alpha * ml_prob_p2 + (1 - alpha) * bm_prob_p2
+            
+            logger.info(f"  {p1_name} vs {p2_name} | ML: {ml_prob_p1:.1%} | BM: {bm_prob_p1:.1%} | Final: {prob_p1_win:.1%}")
+
+            texto = f"\n\U0001f3be *{p1_name} vs {p2_name}*\n"
+            texto += f"\U0001f3c6 {m.get('sport_title', 'Torneo')} | \U0001f552 {commence_time.strftime('%H:%M')} | \U0001f4cc {bm_name}\n"
+            bets_found = False
+            
+            def min_edge(odds):
+                if odds <= 2.0: return 0.03
+                elif odds <= 5.0: return 0.05
+                else: return 0.08
+            
+            edge_p1 = (prob_p1_win * p1_odds) - 1
+            if edge_p1 > min_edge(p1_odds):
+                stake = calculate_kelly(prob_p1_win, p1_odds)
+                reasons = [f"Esp. {surface.capitalize()}"] if eff1 > 0.65 else []
+                if form1 > 0.75: reasons.append("Racha")
+                if rank1 < rank2 - 60: reasons.append("Mejor Rank")
+                edge_display = min(edge_p1 * 100, 50.0)
+                
+                texto += f"\u2705 VALOR: *{p1_name}* @{p1_odds}\n"
+                texto += f"   \u2514 Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
+                if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
+                texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
+                bets_found = True
+                
+            edge_p2 = (prob_p2_win * p2_odds) - 1
+            if edge_p2 > min_edge(p2_odds):
+                stake = calculate_kelly(prob_p2_win, p2_odds)
+                reasons = [f"Esp. {surface.capitalize()}"] if eff2 > 0.65 else []
+                if form2 > 0.75: reasons.append("Racha")
+                if rank2 < rank1 - 60: reasons.append("Mejor Rank")
+                edge_display = min(edge_p2 * 100, 50.0)
+                
+                texto += f"\u2705 VALOR: *{p2_name}* @{p2_odds}\n"
+                texto += f"   \u2514 Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
+                if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
+                texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
+                bets_found = True
+                
+            if bets_found:
+                responses.append(texto)
+                found_any = True
+            else:
+                max_edge = max(edge_p1, edge_p2) * 100
+                fav = p1_name if edge_p1 > edge_p2 else p2_name
+                analyzed_log.append(f"* {p1_name} v {p2_name} - edge: {max_edge:.1f}% (favor: {fav})")
+                
+        if not found_any:
+            responses.append(f"\n[FAIL] Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
         
-        texto = f"\n\U0001f3be *{p1_name} vs {p2_name}*\n"
-        texto += f"\U0001f3c6 {m.get('sport_title', 'Torneo')} | \U0001f552 {commence_time.strftime('%H:%M')} | \U0001f4cc {bm_name}\n"
-        bets_found = False
+        diag = f"\n[STATS] *Diagnostico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
+        diag += f"  |_ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
+        diag += f"  |_ Con edge calculado: {len(analyzed_log)}"
+        responses.append(diag)
         
-        # Umbral dinamico: cuanto mayor la cuota, mayor la exigencia de edge.
-        # Con cuotas altas el modelo comete mas errores de calibracion, por eso
-        # pedimos mas margen de seguridad. Valores empiricos de apuestas profesionales:
-        #  - Favorito (cuota <=2): basta con 3% de edge real
-        #  - Normal (cuota 2-5): exigimos 5%
-        #  - Largo plazo (cuota >5): exigimos 8% - cada punto de prob vale mucho
-        def min_edge(odds):
-            if odds <= 2.0: return 0.03
-            elif odds <= 5.0: return 0.05
-            else: return 0.08
-        
-        # Valor en P1
-        edge_p1 = (prob_p1_win * p1_odds) - 1
-        if edge_p1 > min_edge(p1_odds):
-            stake = calculate_kelly(prob_p1_win, p1_odds)
-            reasons = []
-            if eff1 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
-            if form1 > 0.75: reasons.append("Racha")
-            if rank1 < rank2 - 60: reasons.append("Mejor Rank")
-            edge_display = min(edge_p1 * 100, 50.0)  # cap visual a 50% - >50% = modelo poco fiable
+        if skip_details:
+            responses.append("\n[SEARCH] *Detalle de partidos saltados*:")
+            for d in skip_details[:10]: responses.append(d)
+        if analyzed_log:
+            responses.append("\n[NOTES] *Analisis detallado (Top 15)*:")
+            analyzed_log_sorted = sorted(analyzed_log, key=lambda x: float(x.split('edge: ')[1].split('%')[0]) if 'edge: ' in x else -999, reverse=True)
+            for log_line in analyzed_log_sorted[:15]: responses.append(log_line)
             
-            texto += f"\u2705 VALOR: *{p1_name}* @{p1_odds}\n"
-            texto += f"   \u2514 Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%{'\u26a0\ufe0f' if edge_p1>0.5 else ''}\n"
-            if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
-            texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
-            bets_found = True
-            
-        # Valor en P2
-        edge_p2 = (prob_p2_win * p2_odds) - 1
-        if edge_p2 > min_edge(p2_odds):
-            stake = calculate_kelly(prob_p2_win, p2_odds)
-            reasons = []
-            if eff2 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
-            if form2 > 0.75: reasons.append("Racha")
-            if rank2 < rank1 - 60: reasons.append("Mejor Rank")
-            edge_display = min(edge_p2 * 100, 50.0)
-            
-            texto += f"\u2705 VALOR: *{p2_name}* @{p2_odds}\n"
-            texto += f"   \u2514 Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_display:.1f}%{'\u26a0\ufe0f' if edge_p2>0.5 else ''}\n"
-            if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
-            texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
-            bets_found = True
-            
-        if bets_found:
-            responses.append(texto)
-            found_any = True
-        else:
-            # Registrar para el resumen
-            max_edge = max(edge_p1, edge_p2) * 100
-            fav = p1_name if edge_p1 > edge_p2 else p2_name
-            analyzed_log.append(f"* {p1_name} v {p2_name} - edge: {max_edge:.1f}% (favor: {fav})")
-            
-    if not found_any:
-        responses.append(f"\n[FAIL] Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
-    
-    # Bloque de diagnostico siempre visible
-    diag = f"\n[STATS] *Diagnostico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
-    diag += f"  |_ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
-    diag += f"  |_ Con edge calculado: {len(analyzed_log)}"
-    responses.append(diag)
-    
-    if skip_details:
-        responses.append("\n[SEARCH] *Detalle de partidos saltados*:")
-        for d in skip_details[:10]:
-            responses.append(d)
-        if len(skip_details) > 10:
-            responses.append(f"...y {len(skip_details) - 10} mas.")        
-    if analyzed_log:
-        responses.append("\n[NOTES] *Analisis detallado (Top 15)*:")
-        # Mostrar los 15 con mayor edge para no saturar Telegram
-        analyzed_log_sorted = sorted(analyzed_log, key=lambda x: float(x.split('edge: ')[1].split('%')[0]) if 'edge: ' in x else -999, reverse=True)
-        for log_line in analyzed_log_sorted[:15]:
-            responses.append(log_line)
-        if len(analyzed_log) > 15:
-            responses.append(f"...y {len(analyzed_log) - 15} mas.")
-    msg = "\n".join(responses)
-    for i in range(0, len(msg), 4000):
-        await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
+        msg = "\n".join(responses)
+        for i in range(0, len(msg), 4000):
+            await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
+
+    except Exception as e:
+        import traceback
+        err_msg = f"[FAIL] Error critico durante el analisis:\n{str(e)}\n\n{traceback.format_exc()[-500:]}"
+        logger.error(f"Error en valuebets analysis: {e}", exc_info=True)
+        await update.message.reply_text(err_msg)
 
 async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra informacion de diagnostico del servidor."""
