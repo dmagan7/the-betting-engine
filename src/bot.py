@@ -58,6 +58,7 @@ try:
     import subprocess
     import certifi
     import requests
+    import httpx
     from telegram import Update
     from telegram.ext import Application, CommandHandler, ContextTypes
     from dotenv import load_dotenv
@@ -129,7 +130,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real lala.")
+    await update.message.reply_text("The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -156,48 +157,57 @@ async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
 
 async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("[SEARCH] Conectando de verdad con API REST Bet365 para bajar partidos hoy...")
+    progress_msg = await update.message.reply_text("[SEARCH] Iniciando escaneo en tiempo real de The Odds API...")
     ODDS_API_KEY = os.environ.get("ODDS_API_KEY", "547f9d4f748137ff6adbf7fe48baa1a7")
+    
+    async def update_status(text):
+        try:
+            await progress_msg.edit_text(f"[SEARCH] {text}")
+        except Exception:
+            pass # Ignorar errores si el mensaje no puede ser editado (ej. mismo texto)
+
     # 1. Obtener los deportes activos
+    await update_status("Obteniendo deportes de tenis activos...")
     sports_url = "https://api.the-odds-api.com/v4/sports"
     try:
-        logger.info("Obteniendo deportes de The Odds API...")
-        sports_resp = requests.get(sports_url, params={"apiKey": ODDS_API_KEY}, timeout=10)
-        sports_resp.raise_for_status()
-        sports_data = sports_resp.json()
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(sports_url, params={"apiKey": ODDS_API_KEY})
+            resp.raise_for_status()
+            sports_data = resp.json()
         
         tennis_sports = [s['key'] for s in sports_data if 'tennis' in s['key'].lower()]
         logger.info(f"Deportes de tenis encontrados: {len(tennis_sports)}")
     except Exception as e:
         logger.error(f"Error conectando a The Odds API (Sports): {e}")
-        await update.message.reply_text(f"[FAIL] Error conectando servidor API REST para obtener deportes: {e}")
+        await update_status(f"[FAIL] Error conectando servidor API para deportes: {e}")
         return
 
     if not tennis_sports:
-        await update.message.reply_text("[FAIL] No hay torneos de tenis activos en The Odds API actualmente.")
+        await update_status("[FAIL] No hay torneos de tenis activos en The Odds API actualmente.")
         return
 
     matches = []
     # 2. Descargar cuotas para cada torneo de tenis activo
-    # NO filtramos por bookmaker=bet365 porque si Bet365 no tiene el mercado abierto aun
-    # devuelve la lista vacia y saltamos todos los partidos. Cogemos todas las casas EU,
-    # preferimos Bet365 pero usamos la mejor disponible si no esta.
-    for sport_key in tennis_sports:
+    for i, sport_key in enumerate(tennis_sports):
+        await update_status(f"Descargando cuotas: {sport_key} ({i+1}/{len(tennis_sports)})...")
         odds_url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
         params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h"}
         try:
-            resp = requests.get(odds_url, params=params, timeout=10)
-            resp.raise_for_status()
-            sport_matches = resp.json()
-            if isinstance(sport_matches, list):
-                matches.extend(sport_matches)
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(odds_url, params=params)
+                resp.raise_for_status()
+                sport_matches = resp.json()
+                if isinstance(sport_matches, list):
+                    matches.extend(sport_matches)
         except Exception as e:
             logger.warning(f"Error descargando cuotas para {sport_key}: {e}")
             continue
 
     if not matches:
-        await update.message.reply_text("[FAIL] No hay partidos en la base de datos oficial de The Odds API actualmente.")
+        await update_status("[FAIL] No hay partidos en la base de datos oficial de The Odds API actualmente.")
         return
+
+    await update_status(f"Analizando {len(matches)} partidos con modelos de IA Pro...")
 
     # Verificacion de modelos antes de procesar
     if atp_win_model is None and wta_win_model is None:
