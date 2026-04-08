@@ -215,7 +215,11 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("[WARN] ERROR: Los modelos Pro no estan cargados. El sistema requiere entrenamiento.")
         return
 
-    responses = ["[$$] *Escaneo Pro - Mejores Cuotas EU (Proximas 24h)* [$$]\n"]
+    def esc(text):
+        if not isinstance(text, str): text = str(text)
+        return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    responses = ["<b>[$$] Escaneo Pro - Mejores Cuotas EU (Proximas 24h) [$$]</b>\n"]
     found_any = False
     
     # Filtrar partidos por tiempo (Proximas 24 horas)
@@ -234,8 +238,6 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         for m in matches:
-            # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
-            # que no se pueden comparar con now (tz-aware), saltandose todos los partidos silenciosamente
             commence_time = pd.to_datetime(m['commence_time'], utc=True)
             if commence_time > twentyfour_hours_later:
                 skipped_time += 1
@@ -245,22 +247,20 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             bookmakers_list = m.get('bookmakers', [])
             if not bookmakers_list:
                 skipped_no_bm += 1
-                skip_details.append(f"  * {m.get('home_team','?')} vs {m.get('away_team','?')} - sin cuotas en ninguna casa EU")
+                skip_details.append(f"  • {esc(m.get('home_team','?'))} vs {esc(m.get('away_team','?'))} - sin cuotas en ninguna casa EU")
                 continue
 
-            # Preferir Bet365, si no la primera disponible
             bm = next((b for b in bookmakers_list if b['key'] == 'bet365'), bookmakers_list[0])
             bm_name = bm.get('title', bm['key'])
             
             p1_name = m['home_team']
             p2_name = m['away_team']
-            sport_key = m['sport_key'] # tennis_atp or tennis_wta
+            sport_key = m['sport_key']
             model = atp_win_model if 'atp' in sport_key else wta_win_model
             
             if model is None:
                 skipped_no_model += 1
-                skip_details.append(f"  * {p1_name} vs {p2_name} - modelo {sport_key} no entrenado")
-                logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
+                skip_details.append(f"  • {esc(p1_name)} vs {esc(p2_name)} - modelo {esc(sport_key)} no entrenado")
                 continue
 
             p1_odds, p2_odds = 0, 0
@@ -272,10 +272,9 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if p1_odds == 0 or p2_odds == 0:
                 skipped_no_odds += 1
-                skip_details.append(f"  * {p1_name} vs {p2_name} - sin cuota H2H en {bm_name}")
+                skip_details.append(f"  • {esc(p1_name)} vs {esc(p2_name)} - sin cuota H2H en {esc(bm_name)}")
                 continue
 
-            # LOOKUP JUGADORES
             prof1 = player_profiles[player_profiles['name'] == p1_name]
             prof2 = player_profiles[player_profiles['name'] == p2_name]
             
@@ -283,31 +282,24 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             p2_found = not prof2.empty
             
             def get_val(p, col, default):
-                if p.empty: return default
-                if col not in p.columns: return default
+                if p.empty or col not in p.columns: return default
                 val = p[col].iloc[0]
                 return default if pd.isna(val) else val
 
-            # Probabilidad implicita del bookmaker (sin margen) como prior
             total_implied = (1/p1_odds) + (1/p2_odds)
-            bm_prob_p1 = (1/p1_odds) / total_implied  # prob normalizada sin margen
+            bm_prob_p1 = (1/p1_odds) / total_implied
             bm_prob_p2 = (1/p2_odds) / total_implied
 
-            # Extraer caracteristicas
             rank1 = get_val(prof1, 'rank', None)
             rank2 = get_val(prof2, 'rank', None)
             
-            if rank1 is None and rank2 is None:
-                rank1, rank2 = 100, 100
-            elif rank1 is None:
-                rank1 = int(rank2 * (p1_odds / p2_odds))
-            elif rank2 is None:
-                rank2 = int(rank1 * (p2_odds / p1_odds))
+            if rank1 is None and rank2 is None: rank1, rank2 = 100, 100
+            elif rank1 is None: rank1 = int(rank2 * (p1_odds / p2_odds))
+            elif rank2 is None: rank2 = int(rank1 * (p2_odds / p1_odds))
                 
             form1 = get_val(prof1, 'form', bm_prob_p1)
             form2 = get_val(prof2, 'form', bm_prob_p2)
             
-            # Deteccion de superficie
             surface = "hard"
             comp_name = m.get('competition_name', m.get('sport_title', '')).lower()
             if any(x in comp_name for x in ['clay', 'tierra', 'roland', 'french']): surface = "clay"
@@ -321,18 +313,12 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             hand1 = 1 if get_val(prof1, 'hand', 'R') == 'L' else 0
             hand2 = 1 if get_val(prof2, 'hand', 'R') == 'L' else 0
             
-            # Dataset para prediccion
             df_ml = pd.DataFrame([{
-                'rank_diff': rank2 - rank1,
-                'age_diff': age1 - age2,
-                'ht_diff': ht1 - ht2,
-                'form_diff': form1 - form2,
-                'surface_diff': eff1 - eff2,
-                'p1_rank': rank1, 'p2_rank': rank2,
-                'p1_form': form1, 'p2_form': form2,
+                'rank_diff': rank2 - rank1, 'age_diff': age1 - age2, 'ht_diff': ht1 - ht2,
+                'form_diff': form1 - form2, 'surface_diff': eff1 - eff2,
+                'p1_rank': rank1, 'p2_rank': rank2, 'p1_form': form1, 'p2_form': form2,
                 'p1_surface_eff': eff1, 'p2_surface_eff': eff2,
-                'p1_fatigue': 30, 'p2_fatigue': 30,
-                'p1_hand': hand1, 'p2_hand': hand2,
+                'p1_fatigue': 30, 'p2_fatigue': 30, 'p1_hand': hand1, 'p2_hand': hand2,
                 'tourney_level': 2
             }])
 
@@ -345,16 +331,15 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             ratio_p1 = ml_prob_p1 / bm_prob_p1 if bm_prob_p1 > 0 else 1
             ratio_p2 = ml_prob_p2 / bm_prob_p2 if bm_prob_p2 > 0 else 1
-            if max(ratio_p1, ratio_p2) > 2.5:
-                alpha = min(alpha, 0.35)
+            if max(ratio_p1, ratio_p2) > 2.5: alpha = min(alpha, 0.35)
             
             prob_p1_win = alpha * ml_prob_p1 + (1 - alpha) * bm_prob_p1
             prob_p2_win = alpha * ml_prob_p2 + (1 - alpha) * bm_prob_p2
             
             logger.info(f"  {p1_name} vs {p2_name} | ML: {ml_prob_p1:.1%} | BM: {bm_prob_p1:.1%} | Final: {prob_p1_win:.1%}")
 
-            texto = f"\n\U0001f3be *{p1_name} vs {p2_name}*\n"
-            texto += f"\U0001f3c6 {m.get('sport_title', 'Torneo')} | \U0001f552 {commence_time.strftime('%H:%M')} | \U0001f4cc {bm_name}\n"
+            texto = f"\n🎾 <b>{esc(p1_name)} vs {esc(p2_name)}</b>\n"
+            texto += f"🏆 {esc(m.get('sport_title', 'Torneo'))} | 🕒 {commence_time.strftime('%H:%M')} | 📍 {esc(bm_name)}\n"
             bets_found = False
             
             def min_edge(odds):
@@ -370,10 +355,10 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if rank1 < rank2 - 60: reasons.append("Mejor Rank")
                 edge_display = min(edge_p1 * 100, 50.0)
                 
-                texto += f"\u2705 VALOR: *{p1_name}* @{p1_odds}\n"
-                texto += f"   \u2514 Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
-                if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
-                texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
+                texto += f"✅ VALOR: <b>{esc(p1_name)}</b> @{p1_odds}\n"
+                texto += f"   └ Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
+                if reasons: texto += f"   └ Factores: <i>{esc(', '.join(reasons))}</i>\n"
+                texto += f"   └ Stake: <b>{stake:.1f} uds</b>\n"
                 bets_found = True
                 
             edge_p2 = (prob_p2_win * p2_odds) - 1
@@ -384,10 +369,10 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if rank2 < rank1 - 60: reasons.append("Mejor Rank")
                 edge_display = min(edge_p2 * 100, 50.0)
                 
-                texto += f"\u2705 VALOR: *{p2_name}* @{p2_odds}\n"
-                texto += f"   \u2514 Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
-                if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
-                texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
+                texto += f"✅ VALOR: <b>{esc(p2_name)}</b> @{p2_odds}\n"
+                texto += f"   └ Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_display:.1f}%\n"
+                if reasons: texto += f"   └ Factores: <i>{esc(', '.join(reasons))}</i>\n"
+                texto += f"   └ Stake: <b>{stake:.1f} uds</b>\n"
                 bets_found = True
                 
             if bets_found:
@@ -396,33 +381,33 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 max_edge = max(edge_p1, edge_p2) * 100
                 fav = p1_name if edge_p1 > edge_p2 else p2_name
-                analyzed_log.append(f"* {p1_name} v {p2_name} - edge: {max_edge:.1f}% (favor: {fav})")
+                analyzed_log.append(f"• {esc(p1_name)} v {esc(p2_name)} - edge: {max_edge:.1f}% (favor: {esc(fav)})")
                 
         if not found_any:
             responses.append(f"\n[FAIL] Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
         
-        diag = f"\n[STATS] *Diagnostico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
+        diag = f"\n<b>[STATS] Diagnóstico</b>: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
         diag += f"  |_ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
         diag += f"  |_ Con edge calculado: {len(analyzed_log)}"
         responses.append(diag)
         
         if skip_details:
-            responses.append("\n[SEARCH] *Detalle de partidos saltados*:")
+            responses.append("\n<b>[SEARCH] Detalle de partidos saltados</b>:")
             for d in skip_details[:10]: responses.append(d)
         if analyzed_log:
-            responses.append("\n[NOTES] *Analisis detallado (Top 15)*:")
+            responses.append("\n<b>[NOTES] Análisis detallado (Top 15)</b>:")
             analyzed_log_sorted = sorted(analyzed_log, key=lambda x: float(x.split('edge: ')[1].split('%')[0]) if 'edge: ' in x else -999, reverse=True)
             for log_line in analyzed_log_sorted[:15]: responses.append(log_line)
             
         msg = "\n".join(responses)
         for i in range(0, len(msg), 4000):
-            await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
+            await update.message.reply_text(msg[i:i+4000], parse_mode='HTML')
 
     except Exception as e:
         import traceback
-        err_msg = f"[FAIL] Error critico durante el analisis:\n{str(e)}\n\n{traceback.format_exc()[-500:]}"
+        err_msg = f"<b>[FAIL] Error crítico durante el análisis:</b>\n{esc(str(e))}\n\n<pre>{esc(traceback.format_exc()[-500:])}</pre>"
         logger.error(f"Error en valuebets analysis: {e}", exc_info=True)
-        await update.message.reply_text(err_msg)
+        await update.message.reply_text(err_msg, parse_mode='HTML')
 
 async def debug_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Muestra informacion de diagnostico del servidor."""
