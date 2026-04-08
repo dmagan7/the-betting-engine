@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaaal.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -214,6 +214,11 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
     skipped_time = 0
     logger.info(f"Procesando {len(matches)} partidos de la API...")
     
+    skipped_no_bm = 0
+    skipped_no_model = 0
+    skipped_no_odds = 0
+    skip_details = []
+    
     for m in matches:
         # BUG FIX 1: pd.to_datetime sin utc=True produce timestamps tz-naive
         # que no se pueden comparar con now (tz-aware), saltándose todos los partidos silenciosamente
@@ -223,7 +228,10 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
             
         analyzed_count += 1
-        if not m.get('bookmakers'): continue
+        if not m.get('bookmakers'):
+            skipped_no_bm += 1
+            skip_details.append(f"  ⚫ {m.get('home_team','?')} vs {m.get('away_team','?')} — sin cuotas Bet365")
+            continue
         bm = m['bookmakers'][0] # bet365
         
         p1_name = m['home_team']
@@ -232,6 +240,8 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         model = atp_win_model if 'atp' in sport_key else wta_win_model
         
         if model is None:
+            skipped_no_model += 1
+            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — modelo {sport_key} no entrenado")
             logger.warning(f"Modelo None para sport_key={sport_key}, saltando {p1_name} vs {p2_name}")
             continue
 
@@ -242,7 +252,10 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if out['name'] == p1_name: p1_odds = out['price']
                     else: p2_odds = out['price']
         
-        if p1_odds == 0 or p2_odds == 0: continue
+        if p1_odds == 0 or p2_odds == 0:
+            skipped_no_odds += 1
+            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — sin cuota H2H ({p1_odds}/{p2_odds})")
+            continue
 
         # LOOKUP JUGADORES
         prof1 = player_profiles[player_profiles['name'] == p1_name]
@@ -374,8 +387,19 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     if not found_any:
         responses.append(f"\n❌ Ninguno de los {analyzed_count} partidos analizados ofrece valor suficiente (+3% Edge).\n")
-        responses.append(f"📊 *Diagnóstico*: {len(matches)} partidos totales en API | {skipped_time} fuera de 24h | {analyzed_count} analizados")
-        
+    
+    # Bloque de diagnóstico siempre visible
+    diag = f"\n📊 *Diagnóstico*: {len(matches)} en API | {skipped_time} fuera-24h | {analyzed_count} en ventana\n"
+    diag += f"  └ Sin cuotas Bet365: {skipped_no_bm} | Sin modelo: {skipped_no_model} | Sin H2H: {skipped_no_odds}\n"
+    diag += f"  └ Con edge calculado: {len(analyzed_log)}"
+    responses.append(diag)
+    
+    if skip_details:
+        responses.append("\n🔍 *Detalle de partidos saltados*:")
+        for d in skip_details[:10]:
+            responses.append(d)
+        if len(skip_details) > 10:
+            responses.append(f"...y {len(skip_details) - 10} más.")        
     if analyzed_log:
         responses.append("\n📋 *Análisis detallado (Top 15)*:")
         # Mostrar los 15 con mayor edge para no saturar Telegram
@@ -383,7 +407,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for log_line in analyzed_log_sorted[:15]:
             responses.append(log_line)
         if len(analyzed_log) > 15:
-            responses.append(f"...y {len(analyzed_log) - 15} más.")        
+            responses.append(f"...y {len(analyzed_log) - 15} más.")
     msg = "\n".join(responses)
     for i in range(0, len(msg), 4000):
         await update.message.reply_text(msg[i:i+4000], parse_mode='Markdown')
