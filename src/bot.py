@@ -129,7 +129,7 @@ def calculate_kelly(prob, odds, fraction=0.25, max_stake=5.0):
     return min(kelly_pct * fraction * 100, max_stake)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo reaaal.")
+    await update.message.reply_text("👑 The Betting Engine Live. Usa /valuebets para escanear Bet365 en tiempo real.")
 
 async def daily_update_job(context: ContextTypes.DEFAULT_TYPE):
     print("--------------------------------------------------")
@@ -333,10 +333,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ml_prob_p1 = model.predict_proba(df_ml)[0][1]  # p1_won = 1
         ml_prob_p2 = 1 - ml_prob_p1
         
-        # BUG FIX 3: Blend entre ML y bookmaker según disponibilidad de perfil
-        # Si ambos jugadores están en el perfil: confiar 80% en ML
-        # Si uno está: 60% ML
-        # Si ninguno: 40% ML (bookmaker tiene más info que defaults genéricos)
+        # Blend entre ML y bookmaker según disponibilidad de perfil
         if p1_found and p2_found:
             alpha = 0.80
         elif p1_found or p2_found:
@@ -344,43 +341,66 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             alpha = 0.40
         
+        # SANITY CHECK: si el modelo diverge >2.5x de lo que implica el bookmaker
+        # (ej: nosotros damos 14% a alguien que Pinnacle pone al 5%), reducimos alpha.
+        # Pinnacle es la casa más afilada del mundo — si discrepamos tanto, probablemente
+        # es un error del modelo (ranking/perfil desactualizado), no valor real.
+        ratio_p1 = ml_prob_p1 / bm_prob_p1 if bm_prob_p1 > 0 else 1
+        ratio_p2 = ml_prob_p2 / bm_prob_p2 if bm_prob_p2 > 0 else 1
+        if max(ratio_p1, ratio_p2) > 2.5:
+            alpha = min(alpha, 0.35)  # cortar confianza en ML si diverge demasiado
+        
         prob_p1_win = alpha * ml_prob_p1 + (1 - alpha) * bm_prob_p1
         prob_p2_win = alpha * ml_prob_p2 + (1 - alpha) * bm_prob_p2
         
-        logger.info(f"  {p1_name} vs {p2_name} | perfiles: {p1_found}/{p2_found} | ML: {ml_prob_p1:.2%} | BM: {bm_prob_p1:.2%} | Final: {prob_p1_win:.2%} | Cuotas: {p1_odds}/{p2_odds}")
+        logger.info(f"  {p1_name} vs {p2_name} | perfiles: {p1_found}/{p2_found} | ML: {ml_prob_p1:.2%} | BM: {bm_prob_p1:.2%} | Final: {prob_p1_win:.2%} | ratio: {max(ratio_p1,ratio_p2):.1f}x | alpha: {alpha}")
+
         
-        texto = f"\n🎾 *{p1_name} vs {p2_name}*\n"
-        texto += f"🏆 {m.get('sport_title', 'Torneo')} | 🕒 {commence_time.strftime('%H:%M')} | 📌 {bm_name}\n"
+        texto = f"\n\U0001f3be *{p1_name} vs {p2_name}*\n"
+        texto += f"\U0001f3c6 {m.get('sport_title', 'Torneo')} | \U0001f552 {commence_time.strftime('%H:%M')} | \U0001f4cc {bm_name}\n"
         bets_found = False
+        
+        # Umbral dinámico: cuanto mayor la cuota, mayor la exigencia de edge.
+        # Con cuotas altas el modelo comete más errores de calibración, por eso
+        # pedimos más margen de seguridad. Valores empíricos de apuestas profesionales:
+        #  - Favorito (cuota ≤2): basta con 3% de edge real
+        #  - Normal (cuota 2-5): exigimos 5%
+        #  - Largo plazo (cuota >5): exigimos 8% — cada punto de prob vale mucho
+        def min_edge(odds):
+            if odds <= 2.0: return 0.03
+            elif odds <= 5.0: return 0.05
+            else: return 0.08
         
         # Valor en P1
         edge_p1 = (prob_p1_win * p1_odds) - 1
-        if edge_p1 > 0.03:  # 3% edge mínimo (era 5%, demasiado estricto sin datos suficientes)
+        if edge_p1 > min_edge(p1_odds):
             stake = calculate_kelly(prob_p1_win, p1_odds)
             reasons = []
             if eff1 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
-            if form1 > 0.75: reasons.append("Racha Octava")
-            if rank1 < rank2 - 60: reasons.append("Mucho Mejor Rank")
+            if form1 > 0.75: reasons.append("Racha")
+            if rank1 < rank2 - 60: reasons.append("Mejor Rank")
+            edge_display = min(edge_p1 * 100, 50.0)  # cap visual a 50% — >50% = modelo poco fiable
             
-            texto += f"✅ VALOR: *{p1_name}* @{p1_odds}\n"
-            texto += f"   └ Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_p1*100:.1f}%\n"
-            if reasons: texto += f"   └ Factores: _{', '.join(reasons)}_\n"
-            texto += f"   └ Stake: *{stake:.1f} uds*\n"
+            texto += f"\u2705 VALOR: *{p1_name}* @{p1_odds}\n"
+            texto += f"   \u2514 Prob: {prob_p1_win*100:.1f}% | Edge: +{edge_display:.1f}%{'\u26a0\ufe0f' if edge_p1>0.5 else ''}\n"
+            if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
+            texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
             bets_found = True
             
         # Valor en P2
         edge_p2 = (prob_p2_win * p2_odds) - 1
-        if edge_p2 > 0.03:  # 3% edge mínimo
+        if edge_p2 > min_edge(p2_odds):
             stake = calculate_kelly(prob_p2_win, p2_odds)
             reasons = []
             if eff2 > 0.65: reasons.append(f"Esp. {surface.capitalize()}")
-            if form2 > 0.75: reasons.append("Racha Octava")
-            if rank2 < rank1 - 60: reasons.append("Mucho Mejor Rank")
+            if form2 > 0.75: reasons.append("Racha")
+            if rank2 < rank1 - 60: reasons.append("Mejor Rank")
+            edge_display = min(edge_p2 * 100, 50.0)
             
-            texto += f"✅ VALOR: *{p2_name}* @{p2_odds}\n"
-            texto += f"   └ Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_p2*100:.1f}%\n"
-            if reasons: texto += f"   └ Factores: _{', '.join(reasons)}_\n"
-            texto += f"   └ Stake: *{stake:.1f} uds*\n"
+            texto += f"\u2705 VALOR: *{p2_name}* @{p2_odds}\n"
+            texto += f"   \u2514 Prob: {prob_p2_win*100:.1f}% | Edge: +{edge_display:.1f}%{'\u26a0\ufe0f' if edge_p2>0.5 else ''}\n"
+            if reasons: texto += f"   \u2514 Factores: _{', '.join(reasons)}_\n"
+            texto += f"   \u2514 Stake: *{stake:.1f} uds*\n"
             bets_found = True
             
         if bets_found:
