@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostingRegressor
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.frozen import FrozenEstimator
 from sklearn.metrics import brier_score_loss, log_loss, accuracy_score
 import joblib
 
@@ -44,9 +45,9 @@ def process_circuit(df, name, models_dir):
 
     # CalibratedClassifierCV con isotonic regression sobre el conjunto de test
     # Isotonic es superior a Platt (sigmoid) para distribuciones no gaussianas como el tenis
-    # cv='prefit' porque ya entrenamos el modelo base y no queremos data leakage
+    # cv='prefit' is deprecated in sklearn 1.6+, using FrozenEstimator instead
     print("Calibrando probabilidades (isotonic regression)...")
-    model_win = CalibratedClassifierCV(base_win, cv='prefit', method='isotonic')
+    model_win = CalibratedClassifierCV(FrozenEstimator(base_win), method='isotonic')
     model_win.fit(X_test, y_win_test)
 
     # --- Metricas de validacion ---
