@@ -179,9 +179,12 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     matches = []
     # 2. Descargar cuotas para cada torneo de tenis activo
+    # NO filtramos por bookmaker=bet365 porque si Bet365 no tiene el mercado abierto aún
+    # devuelve la lista vacía y saltamos todos los partidos. Cogemos todas las casas EU,
+    # preferimos Bet365 pero usamos la mejor disponible si no está.
     for sport_key in tennis_sports:
         odds_url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/"
-        params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h,totals", "bookmakers": "bet365"}
+        params = {"apiKey": ODDS_API_KEY, "regions": "eu", "markets": "h2h"}
         try:
             resp = requests.get(odds_url, params=params, timeout=10)
             resp.raise_for_status()
@@ -202,7 +205,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ ERROR: Los modelos Pro no están cargados. El sistema requiere entrenamiento.")
         return
 
-    responses = ["💰 *Escaneo Pro Bet365 (Próximas 24h)* 💰\n"]
+    responses = ["💰 *Escaneo Pro — Mejores Cuotas EU (Próximas 24h)* 💰\n"]
     found_any = False
     
     # Filtrar partidos por tiempo (Próximas 24 horas)
@@ -228,11 +231,15 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
             
         analyzed_count += 1
-        if not m.get('bookmakers'):
+        bookmakers_list = m.get('bookmakers', [])
+        if not bookmakers_list:
             skipped_no_bm += 1
-            skip_details.append(f"  ⚫ {m.get('home_team','?')} vs {m.get('away_team','?')} — sin cuotas Bet365")
+            skip_details.append(f"  ⚫ {m.get('home_team','?')} vs {m.get('away_team','?')} — sin cuotas en ninguna casa EU")
             continue
-        bm = m['bookmakers'][0] # bet365
+
+        # Preferir Bet365, si no la primera disponible
+        bm = next((b for b in bookmakers_list if b['key'] == 'bet365'), bookmakers_list[0])
+        bm_name = bm.get('title', bm['key'])
         
         p1_name = m['home_team']
         p2_name = m['away_team']
@@ -254,7 +261,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if p1_odds == 0 or p2_odds == 0:
             skipped_no_odds += 1
-            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — sin cuota H2H ({p1_odds}/{p2_odds})")
+            skip_details.append(f"  ⚫ {p1_name} vs {p2_name} — sin cuota H2H en {bm_name}")
             continue
 
         # LOOKUP JUGADORES
@@ -343,7 +350,7 @@ async def valuebets(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.info(f"  {p1_name} vs {p2_name} | perfiles: {p1_found}/{p2_found} | ML: {ml_prob_p1:.2%} | BM: {bm_prob_p1:.2%} | Final: {prob_p1_win:.2%} | Cuotas: {p1_odds}/{p2_odds}")
         
         texto = f"\n🎾 *{p1_name} vs {p2_name}*\n"
-        texto += f"🏆 {m.get('competition_name', 'Torneo')} | 🕒 {commence_time.strftime('%H:%M')}\n"
+        texto += f"🏆 {m.get('sport_title', 'Torneo')} | 🕒 {commence_time.strftime('%H:%M')} | 📌 {bm_name}\n"
         bets_found = False
         
         # Valor en P1
